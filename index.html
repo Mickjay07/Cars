@@ -3,55 +3,67 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Road Game Builder — a browser-based road-building game. Lay out roads, set taxes and grow a small town.">
+  <meta name="description" content="Road Game Builder — lay out roads, set taxes and grow a small town in your browser.">
   <title>Road Game Builder</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="app">
-    <header class="topbar">
+    <header class="topbar card">
       <div class="brand">
         <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
-          <rect x="1" y="1" width="30" height="30" rx="7" fill="#7fb36b"/>
-          <path d="M16 1v30M1 16h15" stroke="#3b4046" stroke-width="9"/>
-          <path d="M16 3v26" stroke="#e9e6d8" stroke-width="1.5" stroke-dasharray="3.5 3.5"/>
+          <rect width="32" height="32" rx="8" fill="#23262b"/>
+          <path d="M16 5v4M16 14v4M16 23v4" stroke="#f7f2e7" stroke-width="3" stroke-linecap="round"/>
         </svg>
         <h1 class="brand-title">Road Game Builder</h1>
-        <span class="brand-tag">Prototype</span>
       </div>
       <div class="stats">
+        <div class="stat" title="Money in the city budget">
+          <output class="stat-value" id="money-count">$0</output>
+          <span class="stat-label">Money</span>
+        </div>
+        <div class="stat" title="People living in the city">
+          <output class="stat-value" id="resident-count">0</output>
+          <span class="stat-label">Residents</span>
+        </div>
+        <div class="stat" title="How happy the residents are">
+          <output class="stat-value" id="mood-count">0%</output>
+          <span class="stat-label">Mood</span>
+        </div>
+        <div class="stat" title="Number of road segments on the map">
+          <output class="stat-value" id="segment-count">0</output>
+          <span class="stat-label">Roads</span>
+        </div>
+        <div class="stat" title="Cars currently driving">
+          <output class="stat-value" id="car-count">0</output>
+          <span class="stat-label">Cars</span>
+        </div>
+      </div>
+      <div class="topbar-actions">
         <div class="speed" role="group" aria-label="Game speed">
-          <button class="speed-button" type="button" data-speed="0" aria-pressed="false" title="Pause (Space)">II</button>
+          <button class="speed-button" type="button" data-speed="0" aria-pressed="false" title="Pause (Space)" aria-label="Pause">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3v10M11 3v10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+          </button>
           <button class="speed-button" type="button" data-speed="1" aria-pressed="true" title="Normal speed">1×</button>
           <button class="speed-button" type="button" data-speed="3" aria-pressed="false" title="Fast">3×</button>
         </div>
-        <div class="stat" title="Money in the city budget">
-          <span class="stat-label">Money</span>
-          <output class="stat-value" id="money-count">$0</output>
-        </div>
-        <div class="stat" title="People living in the city">
-          <span class="stat-label">Residents</span>
-          <output class="stat-value" id="resident-count">0</output>
-        </div>
-        <div class="stat" title="How happy the residents are">
-          <span class="stat-label">Mood</span>
-          <output class="stat-value" id="mood-count">0%</output>
-        </div>
-        <div class="stat" title="Number of road segments on the map">
-          <span class="stat-label">Roads</span>
-          <output class="stat-value" id="segment-count">0</output>
-        </div>
-        <div class="stat" title="Cars currently driving">
-          <span class="stat-label">Cars</span>
-          <output class="stat-value" id="car-count">0</output>
-        </div>
+        <button class="icon-button" type="button" id="help-button" title="How to play" aria-label="How to play">?</button>
+        <button class="icon-button panel-toggle" type="button" id="panel-toggle" title="City hall" aria-label="Show or hide city hall">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 14h12M3 14V7M13 14V7M6.5 14V7M9.5 14V7M1.5 7 8 2l6.5 5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>
+        </button>
       </div>
     </header>
 
-    <aside class="sidebar">
-      <section class="panel" aria-labelledby="roads-heading">
-        <h2 class="panel-heading" id="roads-heading">Roads</h2>
-        <div class="tool-grid" role="group" aria-labelledby="roads-heading">
+    <main class="stage">
+      <div class="viewport" id="viewport">
+        <canvas id="game-canvas" data-tool="road" aria-label="Game map. Use the mouse to build and demolish."></canvas>
+      </div>
+    </main>
+
+    <nav class="dock card" aria-label="Building tools">
+      <p class="dock-hint"><span id="status-hint"></span><span class="status-cell" id="status-cell"></span></p>
+      <div class="dock-tools">
+        <div class="tool-group" role="group" aria-label="Roads">
           <button class="tool" type="button" data-tool="road" aria-pressed="true">
             <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3 4 21M17 3l3 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M12 4v3M12 10.5v3M12 17v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             <span class="tool-name">Road</span>
@@ -83,11 +95,7 @@
             <kbd class="tool-key">L</kbd>
           </button>
         </div>
-      </section>
-
-      <section class="panel" aria-labelledby="town-heading">
-        <h2 class="panel-heading" id="town-heading">Town</h2>
-        <div class="tool-grid" role="group" aria-labelledby="town-heading">
+        <div class="tool-group" role="group" aria-label="Town">
           <button class="tool" type="button" data-tool="shop" aria-pressed="false">
             <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v10h16V10M3 10l2-6h14l2 6Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M10 20v-5h4v5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
             <span class="tool-name">Shop</span>
@@ -100,6 +108,8 @@
             <span class="tool-price"></span>
             <kbd class="tool-key">P</kbd>
           </button>
+        </div>
+        <div class="tool-group" role="group" aria-label="Demolish">
           <button class="tool" type="button" data-tool="bulldozer" aria-pressed="false">
             <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17V9h6l3 4h4v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M19 9v9h2.5M2.5 20.5h13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="17.5" r="1.6" fill="currentColor"/><circle cx="13" cy="17.5" r="1.6" fill="currentColor"/></svg>
             <span class="tool-name">Bulldozer</span>
@@ -107,46 +117,41 @@
             <kbd class="tool-key">B</kbd>
           </button>
         </div>
-      </section>
+      </div>
+    </nav>
 
-      <section class="panel panel-city" aria-labelledby="city-heading">
-        <h2 class="panel-heading" id="city-heading">City</h2>
-        <label class="tax-row" for="tax-rate">
-          <span>Tax rate</span>
-          <output id="tax-value" for="tax-rate">8%</output>
+    <aside class="panel card" id="city-panel" aria-labelledby="city-heading">
+      <h2 class="panel-title" id="city-heading">City hall</h2>
+
+      <section class="panel-block">
+        <label class="row" for="tax-rate">
+          <span class="row-label">Tax rate</span>
+          <output class="row-value" id="tax-value" for="tax-rate">8%</output>
         </label>
         <input class="tax-slider" id="tax-rate" type="range" min="0" max="20" step="1" value="8">
-        <p class="city-line"><strong>Budget</strong> <span id="budget-line"></span></p>
-        <p class="city-line"><strong>Mood</strong> <span id="mood-line"></span></p>
-        <p class="city-line"><strong>Next goal</strong> <span id="goal-text"></span></p>
-        <p class="city-line"><strong>Account</strong> <span id="cloud-status">Connecting…</span></p>
-        <button class="button button-wide" type="button" id="account-button">Sign in</button>
-        <button class="button button-danger" type="button" id="clear-map">New city</button>
+        <p class="note" id="budget-line"></p>
       </section>
 
-      <details class="panel panel-help">
-        <summary class="panel-heading">How to play</summary>
-        <ul class="help-list">
-          <li><strong>Drag</strong> to build roads. Everything you build costs money.</li>
-          <li><strong>Houses appear by themselves</strong> beside roads while residents are content.</li>
-          <li>Residents pay <strong>taxes</strong>. Raise the rate for more money — too high and they move out.</li>
-          <li><strong>Shops</strong> give people jobs and somewhere to drive. <strong>Parks</strong> lift the mood.</li>
-          <li><strong>Toll gates</strong> earn money from every passing car, but slow traffic and annoy residents.</li>
-          <li>Lights, roundabouts and bridges unlock as the town grows.</li>
-          <li><strong>Right-drag</strong> or the Bulldozer demolishes. <kbd>Space</kbd> pauses.</li>
-        </ul>
-      </details>
-    </aside>
+      <section class="panel-block">
+        <p class="row"><span class="row-label">Mood</span></p>
+        <div class="meter"><div class="meter-fill" id="mood-bar"></div></div>
+        <p class="note" id="mood-line"></p>
+      </section>
 
-    <main class="stage">
-      <div class="viewport" id="viewport">
-        <canvas id="game-canvas" data-tool="road" aria-label="Game map. Use the mouse to build and demolish."></canvas>
-      </div>
-      <footer class="statusbar">
-        <span id="status-hint">Road tool — click or drag to build</span>
-        <span class="status-cell" id="status-cell"></span>
-      </footer>
-    </main>
+      <section class="panel-block">
+        <p class="row"><span class="row-label">Next goal</span></p>
+        <div class="meter"><div class="meter-fill meter-fill-goal" id="goal-bar"></div></div>
+        <p class="note" id="goal-text"></p>
+      </section>
+
+      <section class="panel-block">
+        <p class="row"><span class="row-label">Account</span></p>
+        <p class="note" id="cloud-status">Connecting…</p>
+        <button class="button button-wide" type="button" id="account-button">Sign in</button>
+      </section>
+
+      <button class="text-button" type="button" id="clear-map">Start a new city</button>
+    </aside>
   </div>
 
   <dialog class="dialog" id="clear-dialog" aria-labelledby="clear-dialog-title">
@@ -181,11 +186,30 @@
     </form>
   </dialog>
 
+  <dialog class="dialog" id="help-dialog" aria-labelledby="help-dialog-title">
+    <form method="dialog">
+      <h2 class="dialog-title" id="help-dialog-title">How to play</h2>
+      <ul class="help-list">
+        <li><strong>Drag</strong> to build roads. Everything you build costs money.</li>
+        <li><strong>Houses appear by themselves</strong> beside roads while residents are content.</li>
+        <li>Residents pay <strong>taxes</strong>. Raise the rate for more money — too high and they move out.</li>
+        <li><strong>Shops</strong> give people jobs and somewhere to drive. <strong>Parks</strong> lift the mood.</li>
+        <li><strong>Toll gates</strong> earn money from every passing car, but slow traffic and annoy residents.</li>
+        <li>Lights, roundabouts and bridges unlock as the town grows.</li>
+        <li><strong>Right-drag</strong> or the bulldozer demolishes. <kbd>Space</kbd> pauses. The letter on each tool selects it.</li>
+      </ul>
+      <div class="dialog-actions">
+        <button class="button button-accent" value="close" autofocus>Got it</button>
+      </div>
+    </form>
+  </dialog>
+
   <div class="error-banner" id="error-banner" role="alert" hidden></div>
 
   <script src="junctions.js"></script>
   <script src="traffic.js"></script>
   <script src="buildings.js"></script>
+  <script src="terrain.js"></script>
   <script src="city.js"></script>
   <script src="storage.js"></script>
   <script src="interface.js"></script>

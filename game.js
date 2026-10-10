@@ -48,8 +48,6 @@
     REMOVE_ANIMATION_MS: 220,
 
     COLORS: Object.freeze({
-      TERRAIN: '#84b870',
-      GRID_LINE: 'rgba(28, 64, 30, 0.10)',
       ROAD_EDGE: '#2c3035',
       ROAD_SURFACE: '#434950',
       LANE_MARKING: 'rgba(236, 233, 220, 0.75)',
@@ -356,23 +354,9 @@
     }
 
     function drawTerrain() {
-      const width = cellSize * CONFIG.GRID_COLUMNS;
-      const height = cellSize * CONFIG.GRID_ROWS;
-      ctx.fillStyle = CONFIG.COLORS.TERRAIN;
-      ctx.fillRect(0, 0, width, height);
-
-      ctx.beginPath();
-      for (let col = 1; col < CONFIG.GRID_COLUMNS; col += 1) {
-        ctx.moveTo(col * cellSize + 0.5, 0);
-        ctx.lineTo(col * cellSize + 0.5, height);
-      }
-      for (let row = 1; row < CONFIG.GRID_ROWS; row += 1) {
-        ctx.moveTo(0, row * cellSize + 0.5);
-        ctx.lineTo(width, row * cellSize + 0.5);
-      }
-      ctx.strokeStyle = CONFIG.COLORS.GRID_LINE;
-      ctx.lineWidth = 1;
-      ctx.stroke();
+      const { roads, houses, shops, parks } = store.getState();
+      const isBuiltOn = (col, row) => [roads, houses, shops, parks].some((tiles) => tiles.has(cellKey(col, row)));
+      MODULES.drawTerrain(ctx, { columns: CONFIG.GRID_COLUMNS, rows: CONFIG.GRID_ROWS, cellSize, isBuiltOn });
     }
 
     /** 0..1 growth of a freshly placed tile; 1 once its animation has finished. */
@@ -692,7 +676,7 @@
 
   function requireModules() {
     const required = [
-      'createTraffic', 'drawHouse', 'drawShop', 'drawPark', 'nextJunctionType', 'pruneJunctions', 'signalPhase', 'drawJunction',
+      'createTraffic', 'drawHouse', 'drawShop', 'drawPark', 'drawTerrain', 'nextJunctionType', 'pruneJunctions', 'signalPhase', 'drawJunction',
       'drawBridgeDeck', 'isBridge', 'createCity', 'initialCity', 'costOfChange', 'isToolUnlocked', 'attachInterface',
       'requireElement', 'saveGame', 'loadGame', 'serializeGame', 'parseSave', 'createCloud', 'startCloudSync',
     ];

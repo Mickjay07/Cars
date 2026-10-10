@@ -72,6 +72,8 @@
       goal: requireElement('goal-text'),
       statusHint: requireElement('status-hint'),
       statusCell: requireElement('status-cell'),
+      moodBar: requireElement('mood-bar'),
+      goalBar: requireElement('goal-bar'),
     });
     const { isDialogOpen } = attachNewCityControl(store, actions);
     let congestion = 0; // last figure reported by the traffic, only used to explain the mood
@@ -111,6 +113,13 @@
       if (tool) store.update(actions.selectTool(tool));
     });
 
+    const helpDialog = requireElement('help-dialog');
+    requireElement('help-button').addEventListener('click', () => {
+      if (typeof helpDialog.showModal === 'function') helpDialog.showModal();
+    });
+    // On small screens the city panel is a sheet that slides over the map.
+    requireElement('panel-toggle').addEventListener('click', () => document.body.classList.toggle('is-panel-open'));
+
     function renderTools(state) {
       toolButtons.forEach((button) => {
         const tool = button.dataset.tool;
@@ -121,7 +130,7 @@
         button.setAttribute('aria-pressed', String(tool === state.activeTool));
         const price = modules.priceOfTool(tool);
         const priceText = price > 0 ? formatMoney(price) : formatMoney(CITY.DEMOLITION_FEE) + ' a tile';
-        setText(button.querySelector('.tool-price'), isLocked ? 'at ' + goal.population + ' residents' : priceText);
+        setText(button.querySelector('.tool-price'), isLocked ? goal.population + ' residents' : priceText);
       });
       speedButtons.forEach((button) => {
         button.setAttribute('aria-pressed', String(Number(button.dataset.speed) === state.speed));
@@ -154,6 +163,9 @@
       elements.money.classList.toggle('is-short', city.money < modules.priceOfTool(state.activeTool));
       setText(elements.residents, String(population));
       setText(elements.mood, Math.round(city.happiness) + '%');
+      elements.moodBar.style.width = Math.round(city.happiness) + '%';
+      elements.moodBar.classList.toggle('is-low', city.happiness < CITY.LEAVE_BELOW_HAPPINESS);
+      elements.goalBar.style.width = (goal ? Math.min(100, (population / goal.population) * 100) : 100) + '%';
       setText(elements.roads, String(state.roads.size));
       if (Number(elements.taxSlider.value) !== city.taxRate) elements.taxSlider.value = String(city.taxRate);
       setText(elements.taxValue, city.taxRate + '%');

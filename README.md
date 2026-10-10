@@ -71,7 +71,8 @@ interface.js  tool buttons, top-bar figures, city panel, speed, keyboard
 city.js       money, taxes, mood, houses moving in and out, goals
 traffic.js    cars: trips and routes, movement, queueing, drawing
 junctions.js  traffic lights, roundabouts, bridges: rules, timing, drawing
-buildings.js  how houses and shops are drawn
+buildings.js  how houses, shops and parks are drawn
+terrain.js    the grass, grid and trees under everything
 storage.js    saving to and loading from the browser, checking saved data
 cloud.js      accounts and cloud saves through Supabase
 config.js     Supabase project URL and publishable key
