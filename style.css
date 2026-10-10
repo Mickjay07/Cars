@@ -134,6 +134,11 @@ button {
   text-transform: uppercase;
 }
 
+.stats {
+  display: flex;
+  gap: var(--space-2);
+}
+
 .stat {
   display: flex;
   align-items: baseline;
@@ -154,7 +159,7 @@ button {
 
 .stat-value {
   display: inline-block;
-  min-width: 3ch;
+  min-width: 2ch;
   font-size: 18px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -356,6 +361,12 @@ kbd {
   white-space: nowrap;
 }
 
+#status-hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .status-cell {
   font-variant-numeric: tabular-nums;
 }
@@ -418,6 +429,204 @@ kbd {
   font-weight: 600;
 }
 
+/* ---------- Game speed, prices, locked tools, city panel ---------- */
+
+.speed {
+  display: flex;
+  gap: 2px;
+}
+
+.speed-button {
+  min-width: 34px;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-small);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.speed-button:hover {
+  border-color: var(--color-text-muted);
+}
+
+.speed-button[aria-pressed="true"] {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.stat-value.is-short {
+  color: var(--color-danger);
+}
+
+.tool-price {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tool:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.tool:disabled:hover {
+  border-color: var(--color-border);
+}
+
+.tax-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.tax-slider {
+  width: 100%;
+  margin: var(--space-2) 0;
+  accent-color: var(--color-accent);
+}
+
+.city-line {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.city-line strong {
+  display: block;
+  color: var(--color-text);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* ---------- Sidebar menu: tool tiles and cards ---------- */
+
+.app {
+  grid-template-columns: 272px minmax(0, 1fr);
+}
+
+.sidebar {
+  gap: var(--space-4);
+}
+
+.tool-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.tool {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas:
+    "icon key"
+    "name name"
+    "price price";
+  align-items: center;
+  gap: 2px var(--space-2);
+  padding: 10px;
+}
+
+.tool-icon {
+  grid-area: icon;
+  margin-bottom: var(--space-1);
+}
+
+.tool-key {
+  grid-area: key;
+  justify-self: end;
+  align-self: start;
+}
+
+.tool-name {
+  grid-area: name;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.tool-price {
+  grid-area: price;
+  font-size: 11px;
+}
+
+.tool:hover:not(:disabled) {
+  background: #313a40;
+}
+
+.tool[aria-pressed="true"],
+.tool[data-tool="bulldozer"][aria-pressed="true"] {
+  box-shadow: none;
+}
+
+.tool[aria-pressed="true"] .tool-price {
+  color: var(--color-text);
+}
+
+.panel-city {
+  padding: var(--space-3);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-medium);
+}
+
+.button-wide {
+  width: 100%;
+  margin-bottom: var(--space-2);
+}
+
+.button-accent {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #201a0c;
+}
+
+.button-accent:hover:not(:disabled) {
+  background: #f6c65e;
+  border-color: #f6c65e;
+}
+
+.field {
+  display: block;
+  margin-bottom: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.field input {
+  display: block;
+  width: 100%;
+  margin-top: var(--space-1);
+  padding: var(--space-2);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-small);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.field-message {
+  min-height: 1.4em;
+  margin: 0 0 var(--space-3);
+  color: var(--color-accent);
+  font-size: 12px;
+}
+
+.panel-help summary {
+  margin: 0;
+  cursor: pointer;
+}
+
+.panel-help[open] summary {
+  margin-bottom: var(--space-2);
+}
+
 /* ---------- Small screens: sidebar becomes a toolbar above the map ---------- */
 
 @media (max-width: 760px) {
@@ -443,14 +652,42 @@ kbd {
 
   .panel-heading,
   .panel-help,
+  .panel-city .city-line,
+  .tool-price,
   .tool-key,
   .brand-tag,
   .status-cell {
     display: none;
   }
 
-  .tool-list {
-    flex-direction: row;
+  .tool-grid {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .sidebar .panel {
+    flex: 1 1 100%;
+  }
+
+  .tool {
+    display: flex;
+    width: auto;
+  }
+
+  .stats {
+    flex-wrap: wrap;
+  }
+
+  .speed {
+    flex: 1 1 100%;
+  }
+
+  .stat {
+    flex: 1 1 28%;
+  }
+
+  .tool-icon {
+    margin-bottom: 0;
   }
 
   .tool {
@@ -462,8 +699,12 @@ kbd {
     padding: var(--space-2) var(--space-3);
   }
 
-  .sidebar .panel:nth-child(2) {
-    margin-left: auto;
+  .panel-city {
+    flex: 1 1 100%;
+  }
+
+  .tax-slider {
+    margin: 0;
   }
 
   .button-danger {
@@ -476,8 +717,32 @@ kbd {
     letter-spacing: 0.1em;
   }
 
+  .topbar {
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
+  }
+
+  .stats {
+    width: 100%;
+  }
+
+  .stat {
+    flex: 1;
+    justify-content: space-between;
+    gap: var(--space-1);
+    padding: 2px var(--space-2);
+    min-width: 0;
+  }
+
   .stat-label {
-    display: none;
+    font-size: 9px;
+    letter-spacing: 0.04em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .stat-value {
+    font-size: 14px;
   }
 }
 

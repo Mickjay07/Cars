@@ -7,11 +7,17 @@
  *
  *   CONFIG        tunable numbers and colours
  *   Grid          cell maths (keys, bounds, lines between cells)
- *   Road network  pure functions that add/remove road segments
+ *   Map contents  pure functions that add/remove roads and houses
  *   Store         the single source of game state + change notifications
  *   Renderer      draws the state onto the canvas
  *   Input         turns pointer events into tool strokes
- *   Interface     toolbar, counter, clear-map dialog, keyboard shortcuts
+ *
+ * The interface is in interface.js, money and residents in city.js, saving in
+ * storage.js.
+ *
+ * Cars live in traffic.js, house drawing in buildings.js, and traffic lights,
+ * roundabouts and bridges in junctions.js; they all register
+ * themselves on window.RoadGameModules and must be loaded before this file.
  *
  * Loaded as a classic script (not an ES module) so the game also runs when
  * index.html is opened straight from disk.
@@ -32,6 +38,12 @@
     SEAM_OVERLAP: 0.5, // px a road arm extends past its cell so neighbours meet without hairlines
     LANE_DASH_RATIO: 0.25, // dash and gap length as a fraction of a cell
 
+    CROSSWALK_DISTANCE_RATIO: 0.41, // how far from a junction's centre its crossings sit
+    CROSSWALK_DEPTH_RATIO: 0.1,
+    JUNCTION_MIN_LINKS: 3, // a road tile with this many road neighbours is an intersection
+
+    AUTOSAVE_DELAY_MS: 2000,
+    MAX_FRAME_SECONDS: 0.05, // cap on one simulation step, e.g. after the tab was in the background
     PLACE_ANIMATION_MS: 160,
     REMOVE_ANIMATION_MS: 220,
 
@@ -41,6 +53,7 @@
       ROAD_EDGE: '#2c3035',
       ROAD_SURFACE: '#434950',
       LANE_MARKING: 'rgba(236, 233, 220, 0.75)',
+      CROSSWALK: 'rgba(236, 233, 220, 0.85)',
       HOVER_BUILD_FILL: 'rgba(255, 255, 255, 0.20)',
       HOVER_BUILD_STROKE: 'rgba(255, 255, 255, 0.85)',
       HOVER_REMOVE_FILL: 'rgba(229, 103, 92, 0.35)',
@@ -49,12 +62,31 @@
     }),
   });
 
-  const TOOLS = Object.freeze({ ROAD: 'road', BULLDOZER: 'bulldozer' });
+  const TOOLS = Object.freeze({
+    ROAD: 'road',
+    SHOP: 'shop',
+    PARK: 'park',
+    TOLL: 'toll',
+    SIGNAL: 'signal',
+    ROUNDABOUT: 'roundabout',
+    BRIDGE: 'bridge',
+    BULLDOZER: 'bulldozer',
+  });
+  /** Tools that change one existing road tile per click instead of painting along a drag. */
+  const JUNCTION_TOOLS = Object.freeze([TOOLS.SIGNAL, TOOLS.ROUNDABOUT, TOOLS.BRIDGE, TOOLS.TOLL]);
+  // Registered by traffic.js, buildings.js and junctions.js; checked in startGame().
+  const MODULES = window.RoadGameModules || {};
   const KNOWN_TOOLS = Object.freeze(Object.values(TOOLS));
 
   const STATUS_HINTS = Object.freeze({
     [TOOLS.ROAD]: 'Road tool — click or drag to build',
-    [TOOLS.BULLDOZER]: 'Bulldozer — click or drag over roads to remove them',
+    [TOOLS.SHOP]: 'Shop — click empty land to build a workplace. Houses appear by themselves along roads',
+    [TOOLS.PARK]: 'Park — click or drag on empty land. Parks lift the mood; you want about one for every four houses',
+    [TOOLS.TOLL]: 'Toll gate — click a road with no side roads. Every car pays, but gates slow traffic and annoy residents',
+    [TOOLS.SIGNAL]: 'Traffic lights — click an intersection to add or remove lights',
+    [TOOLS.ROUNDABOUT]: 'Roundabout — click an intersection to add or remove a roundabout',
+    [TOOLS.BRIDGE]: 'Bridge — click a crossroads: once to build, again to swap which road is on top, again to remove',
+    [TOOLS.BULLDOZER]: 'Bulldozer — click or drag to demolish roads, houses and shops (a small fee each)',
   });
 
   // ------------------------------------------------------------------ Grid
@@ -111,22 +143,24 @@
     return cells;
   }
 
-  // ---------------------------------------------------------- Road network
-  // Pure functions: they never modify the set they are given, and return the
-  // very same set when nothing changed so callers can skip redundant updates.
+  // ---------------------------------------------------------- Map contents
+  // Roads and houses are each a set of cell keys. These functions never modify
+  // the set they are given, and return the very same set when nothing changed
+  // so callers can skip redundant updates.
 
-  function addRoads(roads, cells) {
+  /** Adds cells to a set, skipping ones outside the map, already present, or occupied by `blocked`. */
+  function addCells(occupied, cells, blocked) {
     const newKeys = cells
       .filter(isInBounds)
       .map((cell) => cellKey(cell.col, cell.row))
-      .filter((key) => !roads.has(key));
-    return newKeys.length === 0 ? roads : new Set([...roads, ...newKeys]);
+      .filter((key) => !occupied.has(key) && !blocked.has(key));
+    return newKeys.length === 0 ? occupied : new Set([...occupied, ...newKeys]);
   }
 
-  function removeRoads(roads, cells) {
+  function removeCells(occupied, cells) {
     const doomedKeys = new Set(cells.map((cell) => cellKey(cell.col, cell.row)));
-    const remaining = [...roads].filter((key) => !doomedKeys.has(key));
-    return remaining.length === roads.size ? roads : new Set(remaining);
+    const remaining = [...occupied].filter((key) => !doomedKeys.has(key));
+    return remaining.length === occupied.size ? occupied : new Set(remaining);
   }
 
   /** Which of a cell's four neighbours are roads — this decides its shape. */
@@ -136,6 +170,30 @@
     const west = roads.has(cellKey(col - 1, row));
     const east = roads.has(cellKey(col + 1, row));
     return { north, south, west, east, count: north + south + west + east };
+  }
+
+  function linkCountAt(roads, key) {
+    const { col, row } = parseKey(key);
+    return roads.has(key) ? roadLinks(roads, col, row).count : 0;
+  }
+
+  /** Adds, changes or removes the junction feature on one road tile, as the given tool dictates. */
+  function toggleJunction(state, tool, cell) {
+    const key = cellKey(cell.col, cell.row);
+    const nextType = MODULES.nextJunctionType(tool, state.junctions.get(key), linkCountAt(state.roads, key));
+    if (nextType === undefined) return state;
+    const others = [...state.junctions].filter(([otherKey]) => otherKey !== key);
+    return { ...state, junctions: new Map(nextType === null ? others : [...others, [key, nextType]]) };
+  }
+
+  /** Unit vector from a cell towards one neighbouring road, or null if it has none. */
+  function directionToRoad(roads, col, row) {
+    const links = roadLinks(roads, col, row);
+    if (links.south) return { x: 0, y: 1 };
+    if (links.east) return { x: 1, y: 0 };
+    if (links.west) return { x: -1, y: 0 };
+    if (links.north) return { x: 0, y: -1 };
+    return null;
   }
 
   // ----------------------------------------------------------------- Store
@@ -160,16 +218,77 @@
     };
   }
 
-  const actions = Object.freeze({
-    selectTool: (tool) => (state) =>
-      !KNOWN_TOOLS.includes(tool) || state.activeTool === tool ? state : { ...state, activeTool: tool },
+  const GAME_SPEEDS = Object.freeze([0, 1, 3]); // 0 is paused
+  const clampTax = (rate) => Math.min(Math.max(rate, MODULES.CITY.MIN_TAX), MODULES.CITY.MAX_TAX);
 
-    applyTool: (tool, cells) => (state) => {
-      const roads = tool === TOOLS.BULLDOZER ? removeRoads(state.roads, cells) : addRoads(state.roads, cells);
-      return roads === state.roads ? state : { ...state, roads };
+  function freshMap() {
+    return {
+      roads: new Set(),
+      houses: new Set(), // built by the residents themselves, see city.js
+      shops: new Set(),
+      parks: new Set(),
+      junctions: new Map(), // cell key -> traffic lights, roundabout or bridge on that road tile
+      city: MODULES.initialCity(),
+    };
+  }
+
+  /**
+   * The map after using a tool on some cells, money aside. Returns the same
+   * state if nothing changes. A tile holds one thing: a road, a house or a shop.
+   */
+  function buildWithTool(state, tool, cells) {
+    if (JUNCTION_TOOLS.includes(tool)) return cells.length > 0 ? toggleJunction(state, tool, cells[0]) : state;
+    const isBulldozing = tool === TOOLS.BULLDOZER;
+    const occupiedBy = (kinds) => new Set(kinds.flatMap((kind) => [...state[kind]]));
+    /** The cells of one kind after this stroke: grown by its own tool, shrunk by the bulldozer. */
+    const place = (kind, ownTool, blockers) =>
+      tool === ownTool ? addCells(state[kind], cells, occupiedBy(blockers))
+      : isBulldozing ? removeCells(state[kind], cells)
+      : state[kind];
+    const roads = place('roads', TOOLS.ROAD, ['houses', 'shops', 'parks']);
+    const shops = place('shops', TOOLS.SHOP, ['roads', 'houses', 'parks']);
+    const parks = place('parks', TOOLS.PARK, ['roads', 'houses', 'shops']);
+    const houses = isBulldozing ? removeCells(state.houses, cells) : state.houses;
+    const isUnchanged =
+      roads === state.roads && houses === state.houses && shops === state.shops && parks === state.parks;
+    if (isUnchanged) return state;
+    // Changing the roads can leave a feature on a tile that no longer qualifies for it.
+    const junctions = MODULES.pruneJunctions(state.junctions, (key) => linkCountAt(roads, key));
+    return { ...state, roads, houses, shops, parks, junctions };
+  }
+
+  const actions = Object.freeze({
+    selectTool: (tool) => (state) => {
+      const isUsable = KNOWN_TOOLS.includes(tool) && MODULES.isToolUnlocked(tool, state.city);
+      return !isUsable || state.activeTool === tool ? state : { ...state, activeTool: tool };
     },
 
-    clearMap: () => (state) => (state.roads.size === 0 ? state : { ...state, roads: new Set() }),
+    /** Building is refused outright if the tool is still locked or the city cannot pay for it. */
+    applyTool: (tool, cells) => (state) => {
+      if (!MODULES.isToolUnlocked(tool, state.city)) return state;
+      const built = buildWithTool(state, tool, cells);
+      if (built === state) return state;
+      const cost = MODULES.costOfChange(state, built);
+      if (cost > state.city.money) return state;
+      return { ...built, city: { ...state.city, money: state.city.money - cost } };
+    },
+
+    setTaxRate: (rate) => (state) => {
+      if (!Number.isFinite(rate)) return state;
+      const taxRate = clampTax(Math.round(rate));
+      return taxRate === state.city.taxRate ? state : { ...state, city: { ...state.city, taxRate } };
+    },
+
+    setSpeed: (speed) => (state) =>
+      !GAME_SPEEDS.includes(speed) || speed === state.speed ? state : { ...state, speed },
+
+    earn: (amount) => (state) =>
+      amount > 0 ? { ...state, city: { ...state.city, money: state.city.money + amount } } : state,
+
+    /** Swaps in a whole saved city (roads, buildings, junctions, money and so on). */
+    restore: (savedMap) => (state) => ({ ...state, ...savedMap }),
+
+    newCity: () => (state) => ({ ...state, ...freshMap(), activeTool: TOOLS.ROAD }),
   });
 
   // -------------------------------------------------------------- Renderer
@@ -196,7 +315,7 @@
     if (links.east) ctx.rect(centerX, centerY - half, reach, width);
   }
 
-  function createRenderer(canvas, viewport, store) {
+  function createRenderer(canvas, viewport, store, { traffic, drawHouse }) {
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('This browser does not support the 2D canvas.');
 
@@ -208,7 +327,7 @@
     let pixelRatio = 1;
     let hover = null; // { cell, toolOverride }
     let isFrameRequested = false;
-    const placedAt = new Map(); // road key -> time it appeared (for the grow-in animation)
+    const placedAt = new Map(); // cell key -> time a road or house appeared (for the grow-in animation)
     let removals = []; // [{ col, row, time }] cells that were just bulldozed
 
     function requestRender() {
@@ -269,6 +388,7 @@
       return [...roads].map((key) => {
         const { col, row } = parseKey(key);
         return {
+          key,
           centerX: (col + 0.5) * cellSize,
           centerY: (row + 0.5) * cellSize,
           links: roadLinks(roads, col, row),
@@ -299,7 +419,81 @@
       ctx.setLineDash([]);
     }
 
-    function drawRoads(roads, now) {
+    /** Zebra crossings on every arm of a junction — this is what marks a tile as an intersection. */
+    function drawCrosswalks(tiles) {
+      const distance = cellSize * CONFIG.CROSSWALK_DISTANCE_RATIO;
+      const halfSpan = (cellSize * CONFIG.ROAD_WIDTH_RATIO) / 2;
+      const stripe = cellSize * 0.07;
+      ctx.beginPath();
+      tiles.forEach(({ centerX, centerY, links }) => {
+        if (links.count < CONFIG.JUNCTION_MIN_LINKS) return;
+        if (links.north) { ctx.moveTo(centerX - halfSpan, centerY - distance); ctx.lineTo(centerX + halfSpan, centerY - distance); }
+        if (links.south) { ctx.moveTo(centerX - halfSpan, centerY + distance); ctx.lineTo(centerX + halfSpan, centerY + distance); }
+        if (links.west) { ctx.moveTo(centerX - distance, centerY - halfSpan); ctx.lineTo(centerX - distance, centerY + halfSpan); }
+        if (links.east) { ctx.moveTo(centerX + distance, centerY - halfSpan); ctx.lineTo(centerX + distance, centerY + halfSpan); }
+      });
+      ctx.setLineDash([stripe, stripe]);
+      ctx.lineDashOffset = stripe / 2;
+      ctx.strokeStyle = CONFIG.COLORS.CROSSWALK;
+      ctx.lineWidth = cellSize * CONFIG.CROSSWALK_DEPTH_RATIO;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    const ROAD_COLORS = Object.freeze({
+      edge: CONFIG.COLORS.ROAD_EDGE,
+      surface: CONFIG.COLORS.ROAD_SURFACE,
+      marking: CONFIG.COLORS.LANE_MARKING,
+    });
+
+    function junctionDetails(tile, type) {
+      return { ...tile, type, cellSize, roadColors: ROAD_COLORS, roadWidth: cellSize * CONFIG.ROAD_WIDTH_RATIO };
+    }
+
+    /** Roundabouts and traffic lights, on top of the finished road surface. */
+    function drawGroundJunctions(tiles, junctions) {
+      const phase = MODULES.signalPhase(traffic.getClockSeconds());
+      tiles
+        .filter((tile) => junctions.has(tile.key))
+        .forEach((tile) => MODULES.drawJunction(ctx, { ...junctionDetails(tile, junctions.get(tile.key)), phase }));
+    }
+
+    function drawBridgeDecks(roads, junctions) {
+      junctions.forEach((type, key) => {
+        if (!MODULES.isBridge(type)) return;
+        const { col, row } = parseKey(key);
+        const tile = { centerX: (col + 0.5) * cellSize, centerY: (row + 0.5) * cellSize };
+        MODULES.drawBridgeDeck(ctx, junctionDetails(tile, type));
+      });
+    }
+
+    function drawShops(shops, roads, now) {
+      shops.forEach((key) => {
+        const { col, row } = parseKey(key);
+        MODULES.drawShop(ctx, {
+          col,
+          row,
+          cellSize,
+          scale: placementScale(key, now),
+          drivewayDirection: directionToRoad(roads, col, row),
+        });
+      });
+    }
+
+    function drawHouses(houses, roads, now) {
+      houses.forEach((key) => {
+        const { col, row } = parseKey(key);
+        drawHouse(ctx, {
+          col,
+          row,
+          cellSize,
+          scale: placementScale(key, now),
+          drivewayDirection: directionToRoad(roads, col, row),
+        });
+      });
+    }
+
+    function drawRoads(roads, junctions, now) {
       const tiles = describeTiles(roads, now);
       const surfaceWidth = cellSize * CONFIG.ROAD_WIDTH_RATIO;
       const edgeWidth = surfaceWidth + Math.max(2, cellSize * CONFIG.ROAD_EDGE_RATIO * 2);
@@ -316,6 +510,11 @@
         ctx.fill();
       });
       drawLaneMarkings(tiles);
+      // Zebra crossings only where roads meet at grade and there is no roundabout in the way.
+      const isPlainOrSignalled = (tile) =>
+        !junctions.has(tile.key) || junctions.get(tile.key) === MODULES.JUNCTION.SIGNAL;
+      drawCrosswalks(tiles.filter(isPlainOrSignalled));
+      drawGroundJunctions(tiles, junctions);
     }
 
     function drawRemovals(now) {
@@ -350,39 +549,49 @@
     function draw() {
       isFrameRequested = false;
       const now = performance.now();
-      const { roads, activeTool } = store.getState();
+      const { roads, houses, shops, parks, junctions, activeTool } = store.getState();
 
       ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
       drawTerrain();
       drawRemovals(now);
-      drawRoads(roads, now);
+      parks.forEach((key) => MODULES.drawPark(ctx, { ...parseKey(key), cellSize, scale: placementScale(key, now) }));
+      drawHouses(houses, roads, now);
+      drawShops(shops, roads, now);
+      drawRoads(roads, junctions, now);
+      traffic.draw(ctx, cellSize);
+      drawBridgeDecks(roads, junctions);
+      traffic.draw(ctx, cellSize, { isDeckLayer: true });
       drawHover(activeTool);
 
       pruneFinishedAnimations(now);
       if (placedAt.size > 0 || removals.length > 0) requestRender();
     }
 
-    /** Starts grow-in / dust animations for whatever changed between two road sets. */
-    function trackRoadChanges(roads, previousRoads) {
-      if (prefersReducedMotion || roads === previousRoads) return;
+    /** Starts grow-in / dust animations for whatever changed between two sets of roads or houses. */
+    function trackTileChanges(tiles, previousTiles) {
+      if (prefersReducedMotion || tiles === previousTiles) return;
       const now = performance.now();
-      roads.forEach((key) => {
-        if (!previousRoads.has(key)) placedAt.set(key, now);
+      tiles.forEach((key) => {
+        if (!previousTiles.has(key)) placedAt.set(key, now);
       });
-      const removed = [...previousRoads]
-        .filter((key) => !roads.has(key))
+      const removed = [...previousTiles]
+        .filter((key) => !tiles.has(key))
         .map((key) => ({ ...parseKey(key), time: now }));
       removed.forEach(({ col, row }) => placedAt.delete(cellKey(col, row)));
       removals = [...removals, ...removed];
     }
 
     store.subscribe((state, previous) => {
-      trackRoadChanges(state.roads, previous.roads);
+      trackTileChanges(state.roads, previous.roads);
+      trackTileChanges(state.houses, previous.houses);
+      trackTileChanges(state.shops, previous.shops);
+      trackTileChanges(state.parks, previous.parks);
       requestRender();
     });
 
     return {
       resize,
+      requestRender,
       setHover(cell, toolOverride) {
         hover = cell ? { cell, toolOverride: toolOverride || null } : null;
         requestRender();
@@ -443,7 +652,10 @@
       if (event.pointerId !== stroke.pointerId) return;
       const cell = clampCell(rawCell);
       if (cell.col === stroke.lastCell.col && cell.row === stroke.lastCell.row) return;
-      store.update(actions.applyTool(stroke.tool, cellsBetween(stroke.lastCell, cell)));
+      // Junction tools act once per click; dragging with them only moves the highlight.
+      if (!JUNCTION_TOOLS.includes(stroke.tool)) {
+        store.update(actions.applyTool(stroke.tool, cellsBetween(stroke.lastCell, cell)));
+      }
       stroke = { ...stroke, lastCell: cell };
       onHoverChange(cell, stroke.tool);
     });
@@ -456,96 +668,6 @@
     });
     // Right-drag is the quick bulldozer, so the browser menu must stay closed.
     canvas.addEventListener('contextmenu', (event) => event.preventDefault());
-  }
-
-  // ------------------------------------------------------------- Interface
-
-  function requireElement(id) {
-    const element = document.getElementById(id);
-    if (!element) throw new Error('Missing page element: #' + id);
-    return element;
-  }
-
-  function attachClearMapControl(store) {
-    const clearButton = requireElement('clear-map');
-    const dialog = requireElement('clear-dialog');
-    const dialogText = requireElement('clear-dialog-text');
-    const canUseDialog = typeof dialog.showModal === 'function';
-
-    clearButton.addEventListener('click', () => {
-      const count = store.getState().roads.size;
-      if (count === 0) return;
-      const message =
-        (count === 1 ? 'The 1 road segment' : 'All ' + count + ' road segments') +
-        " will be removed. This can't be undone.";
-      if (!canUseDialog) {
-        if (window.confirm('Clear the whole map? ' + message)) store.update(actions.clearMap());
-        return;
-      }
-      dialogText.textContent = message;
-      dialog.showModal();
-    });
-
-    // Only the confirm button clears; Escape and "Keep building" just close the dialog.
-    // Handled on submit (not the later, asynchronous `close` event) so the map is
-    // already empty by the time the player can touch it again.
-    dialog.addEventListener('submit', (event) => {
-      if (event.submitter && event.submitter.value === 'confirm') store.update(actions.clearMap());
-    });
-
-    return { clearButton, isDialogOpen: () => Boolean(dialog.open) };
-  }
-
-  function attachInterface(store, canvas) {
-    const toolButtons = [...document.querySelectorAll('[data-tool]')].filter((el) => el.tagName === 'BUTTON');
-    const segmentCount = requireElement('segment-count');
-    const statusHint = requireElement('status-hint');
-    const statusCell = requireElement('status-cell');
-    const { clearButton, isDialogOpen } = attachClearMapControl(store);
-
-    const TOOL_SHORTCUTS = Object.freeze({ r: TOOLS.ROAD, b: TOOLS.BULLDOZER });
-
-    toolButtons.forEach((button) => {
-      button.addEventListener('click', () => store.update(actions.selectTool(button.dataset.tool)));
-    });
-
-    window.addEventListener('keydown', (event) => {
-      if (event.repeat || event.ctrlKey || event.metaKey || event.altKey || isDialogOpen()) return;
-      const tool = TOOL_SHORTCUTS[event.key.toLowerCase()];
-      if (tool) store.update(actions.selectTool(tool));
-    });
-
-    function renderTool(activeTool) {
-      toolButtons.forEach((button) => {
-        button.setAttribute('aria-pressed', String(button.dataset.tool === activeTool));
-      });
-      canvas.dataset.tool = activeTool;
-      statusHint.textContent = STATUS_HINTS[activeTool];
-    }
-
-    function renderSegmentCount(count, shouldAnimate) {
-      segmentCount.textContent = String(count);
-      clearButton.disabled = count === 0;
-      if (!shouldAnimate) return;
-      segmentCount.classList.remove('is-bumped');
-      void segmentCount.offsetWidth; // restart the CSS animation
-      segmentCount.classList.add('is-bumped');
-    }
-
-    store.subscribe((state, previous) => {
-      if (state.activeTool !== previous.activeTool) renderTool(state.activeTool);
-      if (state.roads.size !== previous.roads.size) renderSegmentCount(state.roads.size, true);
-    });
-
-    const initial = store.getState();
-    renderTool(initial.activeTool);
-    renderSegmentCount(initial.roads.size, false);
-
-    return {
-      showCursorCell(cell) {
-        statusCell.textContent = cell ? 'Tile ' + (cell.col + 1) + ', ' + (cell.row + 1) : '';
-      },
-    };
   }
 
   // ------------------------------------------------------------------ Boot
@@ -566,13 +688,78 @@
     banner.hidden = false;
   }
 
+  const requireElement = (id) => MODULES.requireElement(id);
+
+  function requireModules() {
+    const required = [
+      'createTraffic', 'drawHouse', 'drawShop', 'drawPark', 'nextJunctionType', 'pruneJunctions', 'signalPhase', 'drawJunction',
+      'drawBridgeDeck', 'isBridge', 'createCity', 'initialCity', 'costOfChange', 'isToolUnlocked', 'attachInterface',
+      'requireElement', 'saveGame', 'loadGame', 'serializeGame', 'parseSave', 'createCloud', 'startCloudSync',
+    ];
+    const missing = required.filter((name) => typeof MODULES[name] !== 'function');
+    if (missing.length > 0 || !MODULES.JUNCTION || !MODULES.CITY) {
+      throw new Error('A game script failed to load before game.js (missing: ' + missing.join(', ') + ').');
+    }
+    return MODULES;
+  }
+
+  /** Runs traffic and the city forward every frame (several times per frame when sped up). */
+  function startGameLoop(store, traffic, city, renderer, ui) {
+    let previousTime = performance.now();
+    function frame(now) {
+      const deltaSeconds = Math.min((now - previousTime) / 1000, CONFIG.MAX_FRAME_SECONDS);
+      previousTime = now;
+      const { speed } = store.getState();
+      for (let pass = 0; pass < speed; pass += 1) {
+        const state = store.getState();
+        traffic.step(deltaSeconds, state.roads, state.houses, state.shops, state.junctions);
+        const afterCityTick = city.tick(deltaSeconds, state, traffic.getCongestion());
+        store.update(() => afterCityTick);
+        store.update(actions.earn(traffic.collectTolls() * MODULES.CITY.TOLL_FEE));
+      }
+      ui.showTraffic(traffic.getCarCount(), traffic.getCongestion());
+      // Traffic lights change colour even on an empty road, so they keep the map redrawing too.
+      const isAnythingMoving = traffic.getCarCount() > 0 || store.getState().junctions.size > 0;
+      if (speed > 0 && isAnythingMoving) renderer.requestRender();
+      window.requestAnimationFrame(frame);
+    }
+    window.requestAnimationFrame(frame);
+  }
+
+  /** What storage.js needs to know to check a save, wherever it came from. */
+  function saveRules() {
+    return {
+      isValidCell: (key) => isInBounds(parseKey(key)),
+      junctionTypes: Object.values(MODULES.JUNCTION),
+      defaultCity: MODULES.initialCity(),
+      clampTax,
+    };
+  }
+
+  /** Saves shortly after the map or the city changes, at most once per delay. */
+  function startAutosave(store) {
+    let pendingSave = null;
+    store.subscribe((state, previous) => {
+      const isWorthSaving = ['roads', 'houses', 'shops', 'parks', 'junctions', 'city'].some((part) => state[part] !== previous[part]);
+      if (!isWorthSaving || pendingSave !== null) return;
+      pendingSave = window.setTimeout(() => {
+        pendingSave = null;
+        MODULES.saveGame(store.getState());
+      }, CONFIG.AUTOSAVE_DELAY_MS);
+    });
+  }
+
   function startGame() {
+    const { createTraffic, createCity, drawHouse, JUNCTION, signalPhase, attachInterface } = requireModules();
     const canvas = requireElement('game-canvas');
     const viewport = requireElement('viewport');
-    const store = createStore({ roads: new Set(), activeTool: TOOLS.ROAD });
+    const { savedAt: localSavedAt = 0, ...savedMap } = MODULES.loadGame(saveRules()) || freshMap();
+    const store = createStore({ ...savedMap, activeTool: TOOLS.ROAD, speed: 1 });
 
-    const renderer = createRenderer(canvas, viewport, store);
-    const ui = attachInterface(store, canvas);
+    const traffic = createTraffic({ cellKey, JUNCTION, signalPhase });
+    const city = createCity({ columns: CONFIG.GRID_COLUMNS, rows: CONFIG.GRID_ROWS, cellKey });
+    const renderer = createRenderer(canvas, viewport, store, { traffic, drawHouse });
+    const ui = attachInterface(store, canvas, { actions, TOOLS, STATUS_HINTS });
     attachInput(canvas, store, (cell, toolOverride) => {
       renderer.setHover(cell, toolOverride);
       ui.showCursorCell(cell);
@@ -580,6 +767,16 @@
 
     watchViewportSize(viewport, renderer.resize);
     renderer.resize();
+    startAutosave(store);
+    MODULES.startCloudSync({
+      cloud: MODULES.createCloud(window.ROAD_GAME_CONFIG),
+      store,
+      restore: actions.restore,
+      serialize: MODULES.serializeGame,
+      parse: (saved) => MODULES.parseSave(saved, saveRules()),
+      localSavedAt,
+    });
+    startGameLoop(store, traffic, city, renderer, ui);
 
     // Read-only window into the game for debugging from the browser console.
     window.roadGameBuilder = Object.freeze({ getState: store.getState });

@@ -1,84 +1,93 @@
 # Road Game Builder
 
-A browser-based road-building game. You start with an empty piece of land and lay out your own road network, tile by tile. It is inspired by Cities: Skylines, but deliberately much smaller.
+A browser-based road-building game. You lay out roads on an empty piece of land, people move in along them, and their taxes pay for the next road. It is inspired by Cities: Skylines, but deliberately much smaller.
 
-This is an early prototype: it has the core building loop and nothing else yet.
-
-## Current milestone — Day 2: Defining the Core Gameplay
-
-The goal of this milestone is the basic loop, playable with no tutorial or account:
-
-1. Start with an empty map.
-2. Pick the road tool and build a network.
-3. Experiment with layouts.
-4. Bulldoze or rework roads.
-5. Keep improving the network.
+This is an early prototype. The numbers (prices, tax income, how fast people move) are first guesses and have not been balanced.
 
 ## What works today
 
-- A top-down 40 × 24 tile map with green terrain and a subtle grid. The map scales to fit the browser window and stays centred when the window is resized.
-- **Road tool** — click a tile to place a road, or hold and drag to lay a connected stretch. Fast drags are filled in, so a dragged road never has gaps.
-- **Automatic connections** — each road tile joins its neighbours, so straights, corners, T-junctions and crossroads form from where you place tiles. Lane markings are drawn on straights and corners.
-- **No duplicates** — a tile holds at most one road segment; building over an existing road does nothing.
-- **Bulldozer tool** — click or drag over roads to remove them. Right-click-drag bulldozes regardless of the selected tool.
-- **Clear map** — removes everything, after a confirmation dialog.
-- **Road segment counter** in the top bar.
-- Keyboard shortcuts: `R` for road, `B` for bulldozer.
-- Small touches: hover highlight on the tile under the cursor, a short grow-in when a road is placed, a brief fade when one is removed. Animations are skipped if the system asks for reduced motion.
+**Building**
+- A 40 × 24 tile map that scales to fit the browser window.
+- **Roads** — click or drag. Tiles join their neighbours into straights, corners and intersections; fast drags are filled in so a road never has gaps.
+- **Shops** — placed by you on empty land. Each provides 12 jobs and is a destination for cars.
+- **Parks** — placed by you on empty land. They lift the mood; the full effect needs about one park for every four houses.
+- **Toll gates** — click a road tile with no side roads. Every car driving through pays $2, but cars crawl through the gate, and each gate lowers the mood a little.
+- **Traffic lights, roundabouts, bridges** — click an intersection (a four-way crossing for a bridge). Click a bridge again to swap which road is on top, a third time to remove it. The road underneath a bridge is the underpass.
+- **Bulldozer** — click or drag, or right-drag with any tool. Removes roads, houses, shops and parks.
+- A tile holds one thing: a road, a house, a shop or a park.
 
-## What does not exist yet
+**Money**
+- You start with $2,000. Prices: road $10, shop $150, park $80, toll gate $250, traffic lights $100, roundabout $200, bridge $500, demolition $5 per tile.
+- A build you cannot afford is simply refused; the money figure turns red when the selected tool costs more than you have.
+- Every day (one second at normal speed) residents pay tax and you pay upkeep for roads, shops and parks.
 
-There are no vehicles, no traffic, no traffic lights, no buildings, no money or goals, and no saving — **the map is lost when the page is reloaded**. There is no undo. Roads are purely visual tiles: an "intersection" is just a tile with three or four road neighbours, with no rules attached.
+**Residents, taxes and mood**
+- **Houses build themselves** on empty tiles beside roads while residents are content. You cannot place them, only demolish them. Each house holds 4 residents.
+- You set the **tax rate** (0–20%) with the slider. More tax is more income, but mood drifts down: above 8% people grumble.
+- **Mood** (0–100%) is lowered by high taxes, by a shortage of jobs, by traffic standing still and by toll gates, and raised by parks. From 50% up people move in, faster the happier they are; below 35% they **move out** and houses disappear.
+- The City panel shows the daily budget, the current mood and what residents are complaining about.
 
-The layout adapts to narrow screens and touch input goes through the same pointer handling as the mouse, but the game has only been tested with a mouse in a desktop browser.
+**Traffic**
+- Cars drive between houses and shops along the shortest route, then leave the road. With no shops they wander for a while instead. There are about 0.6 cars on the road per connected house, 60 at most.
+- Cars keep to the right, keep a gap behind the car ahead, stop at red and yellow lights, give way when entering a roundabout and go straight across bridges.
+
+**Game flow**
+- **Goals** by population: 20 residents unlocks traffic lights, 60 roundabouts, 120 bridges, 250 is the last goal. Each pays a cash reward. Unlocks follow the highest population you have reached, so they are not lost if people leave.
+- **Speed**: pause, 1× and 3×. You can build while paused.
+- **Saving**: the game saves itself in the browser a couple of seconds after anything changes and is restored when the page is opened again. "New city" resets the map, money and progress.
+- **Accounts and cloud save** (optional): "Sign in" in the City panel lets a player create an account or sign in with an e-mail address and password. While signed in, the city is uploaded every 30 seconds, and signing in on another browser loads it there. This needs the Supabase project named in `config.js`, with `supabase-setup.sql` run once in it, and an internet connection (the Supabase library is loaded from a CDN). Signed out or offline, the game keeps saving in the browser only.
+- Keyboard: `R` road, `S` shop, `P` park, `L` toll gate, `T` traffic lights, `O` roundabout, `G` bridge, `B` bulldozer, `Space` pause.
+
+## What does not exist yet, and known rough edges
+
+- Intersections without lights or a roundabout have no right of way: cars from different directions drive through each other. Cars stop abruptly rather than braking and can overlap where they appear or inside a roundabout.
+- Traffic jams lower the mood of the whole city, not of the houses near the jam.
+- Each trip is independent: a car is not tied to a particular house or resident, and nobody has to reach a shop for it to count as their job.
+- There is no way to lose and no penalty for debt beyond being unable to build (including being unable to pay demolition fees).
+- All traffic lights share one timing. Roundabouts and bridges are one tile each; there are no ramps or longer bridges.
+- Parks and toll gates affect the whole city equally, wherever they stand. More building types and per-area statistics are not implemented.
+- There is one city per browser and one per account, and no undo. Two browsers signed in to the same account at once overwrite each other (last upload wins).
+- Accounts have no password reset, no way to change e-mail or delete the account from inside the game, and no leaderboard.
+- Signing in, creating an account and the cloud round trip have not been tested end to end; only the page loading and the signed-out state were checked.
+- No automated tests. The game has been tested by hand with a mouse in a desktop browser; touch and phone-sized screens have had only a layout check.
 
 ## Running it locally
 
-No build step and no dependencies. Either:
+No build step and no dependencies. Either open `index.html` directly in a browser, or serve the folder with any static server:
 
-- open `index.html` directly in a browser, or
-- serve the folder with any static server, for example:
+```bash
+python3 -m http.server 8123
+```
 
-  ```bash
-  python3 -m http.server 8123
-  ```
-
-  then visit <http://localhost:8123>.
-
-To deploy, upload the files as they are to any static host (GitHub Pages, Netlify, Cloudflare Pages, …).
+then visit <http://localhost:8123>. To deploy, upload the files as they are to any static host.
 
 ## Project structure
 
 ```
-index.html   page structure: top bar, tool sidebar, canvas, clear-map dialog
-style.css    interface styling
-game.js      the game itself
-README.md    this file
+index.html    page structure
+style.css     interface styling
+game.js       map state and actions, tools, input, rendering, game loop
+interface.js  tool buttons, top-bar figures, city panel, speed, keyboard
+city.js       money, taxes, mood, houses moving in and out, goals
+traffic.js    cars: trips and routes, movement, queueing, drawing
+junctions.js  traffic lights, roundabouts, bridges: rules, timing, drawing
+buildings.js  how houses and shops are drawn
+storage.js    saving to and loading from the browser, checking saved data
+cloud.js      accounts and cloud saves through Supabase
+config.js     Supabase project URL and publishable key
+supabase-setup.sql  one-time database setup for cloud saves
 ```
 
-`game.js` is one file split into sections that only communicate through a small state store:
+The scripts are plain (non-module) files so the game also runs from disk. Each registers its functions on `window.RoadGameModules`, and `game.js` must load last (see the script tags in `index.html`).
 
-| Section      | Responsibility                                                    |
-| ------------ | ----------------------------------------------------------------- |
-| CONFIG       | Grid size, colours, animation timings                             |
-| Grid         | Tile maths: keys, bounds, the tile-by-tile path between two tiles |
-| Road network | Pure functions that add and remove road segments                  |
-| Store        | Holds the game state (`roads`, `activeTool`) and notifies on change |
-| Renderer     | Draws the state to the canvas                                     |
-| Input        | Turns pointer events into tool strokes                            |
-| Interface    | Toolbar, counter, clear-map dialog, keyboard shortcuts            |
-
-The game state is a set of `"column,row"` keys plus the selected tool. Future systems are meant to plug into the store the same way the renderer does, rather than reaching into each other.
+The game state lives in one store in `game.js`: sets of `"column,row"` keys for roads, houses and shops, a map of junction features, the `city` object (money, tax rate, happiness, peak population, day), the selected tool and the speed. State is never modified in place; every change produces a new state. Cars are not part of it — `traffic.js` keeps its own list and is only shown the map.
 
 For debugging, `roadGameBuilder.getState()` in the browser console returns the current state.
 
-## Planned features
+## Ideas for later
 
-None of these are implemented. Roughly in the order they are likely to arrive:
-
-- Saving and loading maps
-- Vehicles driving along roads
-- Intersections with rules, and traffic lights
-- Traffic simulation and congestion
-- Road statistics
-- Buildings and city development
+- A leaderboard of the biggest cities, password reset
+- Right of way at plain intersections, smoother braking
+- Mood and congestion per neighbourhood instead of city-wide
+- A tax or loan consequence for running out of money
+- More building types
