@@ -10,7 +10,6 @@
 
   const CITY = Object.freeze({
     SECONDS_PER_DAY: 1,
-    STARTING_MONEY: 2000,
     RESIDENTS_PER_HOUSE: 4,
     JOBS_PER_SHOP: 12,
     WORKING_SHARE: 0.5, // share of residents who need a job
@@ -18,6 +17,7 @@
     // Money. A tile's price is charged when it is built; upkeep and taxes are per day.
     PRICES: Object.freeze({ road: 10, shop: 150, park: 80, signal: 100, roundabout: 200, bridge: 500, toll: 250 }),
     DEMOLITION_FEE: 5,
+    WATER_ROAD_FACTOR: 6, // a road across water is a causeway and costs this many times more
     ROAD_UPKEEP: 0.2,
     SHOP_UPKEEP: 1,
     PARK_UPKEEP: 0.5,
@@ -59,8 +59,9 @@
   const NEIGHBOUR_OFFSETS = Object.freeze([[0, -1], [1, 0], [0, 1], [-1, 0]]);
   const clamp = (value, low, high) => Math.min(Math.max(value, low), high);
 
-  function initialCity() {
-    return { money: CITY.STARTING_MONEY, taxRate: CITY.STARTING_TAX, happiness: CITY.BASE_HAPPINESS, peakPopulation: 0, day: 0 };
+  /** A brand-new city's books. The starting money depends on the world's difficulty. */
+  function initialCity(world) {
+    return { money: window.RoadGameModules.difficultyOf(world).money, taxRate: CITY.STARTING_TAX, happiness: CITY.BASE_HAPPINESS, peakPopulation: 0, day: 0 };
   }
 
   const populationOf = (state) => state.houses.size * CITY.RESIDENTS_PER_HOUSE;
@@ -100,6 +101,8 @@
       added(before.shops, after.shops) + added(before.parks, after.parks);
     return (
       added(after.roads, before.roads) * CITY.PRICES.road +
+      [...after.roads].filter((key) => !before.roads.has(key) && after.water.has(key)).length *
+        CITY.PRICES.road * (CITY.WATER_ROAD_FACTOR - 1) +
       added(after.shops, before.shops) * CITY.PRICES.shop +
       added(after.parks, before.parks) * CITY.PRICES.park +
       newJunctions.reduce((sum, [, type]) => sum + junctionPrice(type), 0) +
@@ -115,18 +118,20 @@
 
   const tollCountOf = (state) => [...state.junctions.values()].filter((type) => type === 'toll').length;
 
+  /** Everything that upsets residents is scaled by the difficulty; what pleases them is not. */
   function happinessTarget(state, congestion) {
+    const { sensitivity } = window.RoadGameModules.difficultyOf(state.world);
     const taxEffect = (CITY.NEUTRAL_TAX - state.city.taxRate) * CITY.HAPPINESS_PER_TAX_POINT;
-    const target =
-      CITY.BASE_HAPPINESS + taxEffect -
-      clamp(congestion, 0, 1) * CITY.CONGESTION_PENALTY -
+    const grievances =
+      Math.max(0, -taxEffect) +
+      clamp(congestion, 0, 1) * CITY.CONGESTION_PENALTY +
       unemploymentOf(state) * CITY.UNEMPLOYMENT_PENALTY +
-      parkBonusOf(state) -
       Math.min(CITY.MAX_TOLL_PENALTY, tollCountOf(state) * CITY.TOLL_PENALTY);
-    return clamp(target, 0, 100);
+    const comforts = Math.max(0, taxEffect) + parkBonusOf(state);
+    return clamp(CITY.BASE_HAPPINESS + comforts - grievances * sensitivity, 0, 100);
   }
 
-  function createCity({ columns, rows, cellKey, random = Math.random }) {
+  function createCity({ cellKey, random = Math.random }) {
     let secondsIntoDay = 0;
 
     const parseKey = (key) => key.split(',').map(Number);
@@ -134,11 +139,11 @@
 
     /** Empty tiles next to a road — the only places a family will build. */
     function freeRoadsideTiles(state) {
-      const isFree = (key) => ['roads', 'houses', 'shops', 'parks'].every((kind) => !state[kind].has(key));
+      const isFree = (key) => ['roads', 'houses', 'shops', 'parks', 'water'].every((kind) => !state[kind].has(key));
       const candidates = [...state.roads].flatMap((roadKey) => {
         const [col, row] = parseKey(roadKey);
         return NEIGHBOUR_OFFSETS.map(([dx, dy]) => [col + dx, row + dy])
-          .filter(([c, r]) => c >= 0 && c < columns && r >= 0 && r < rows)
+          .filter(([c, r]) => c >= 0 && c < state.world.columns && r >= 0 && r < state.world.rows)
           .map(([c, r]) => cellKey(c, r))
           .filter(isFree);
       });

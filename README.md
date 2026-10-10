@@ -7,7 +7,8 @@ This is an early prototype. The numbers (prices, tax income, how fast people mov
 ## What works today
 
 **Building**
-- A 40 × 24 tile map that scales to fit the browser window.
+- A tile map that scales to fit the browser window. Its size and landscape are chosen when the city is founded (see "Welcome screen and worlds").
+- **Water** — sea, rivers and lakes. Buildings cannot stand in water and houses do not appear there; a road can cross it as a causeway at six times the price.
 - **Roads** — click or drag. Tiles join their neighbours into straights, corners and intersections; fast drags are filled in so a road never has gaps.
 - **Shops** — placed by you on empty land. Each provides 12 jobs and is a destination for cars.
 - **Parks** — placed by you on empty land. They lift the mood; the full effect needs about one park for every four houses.
@@ -34,8 +35,12 @@ This is an early prototype. The numbers (prices, tax income, how fast people mov
 **Game flow**
 - **Goals** by population: 20 residents unlocks traffic lights, 60 roundabouts, 120 bridges, 250 is the last goal. Each pays a cash reward. Unlocks follow the highest population you have reached, so they are not lost if people leave.
 - **Speed**: pause, 1× and 3×. You can build while paused.
-- **Saving**: the game saves itself in the browser a couple of seconds after anything changes and is restored when the page is opened again. "New city" resets the map, money and progress.
-- **Accounts and cloud save** (optional): "Sign in" in the City panel lets a player create an account or sign in with an e-mail address and password. While signed in, the city is uploaded every 30 seconds, and signing in on another browser loads it there. This needs the Supabase project named in `config.js`, with `supabase-setup.sql` run once in it, and an internet connection (the Supabase library is loaded from a CDN). Signed out or offline, the game keeps saving in the browser only.
+- **Welcome screen and worlds**: the game opens on a welcome screen with three save slots. Each can be continued or replaced with a new world. A new world asks for:
+  - **Difficulty** — Easy ($3,000, forgiving residents), Normal ($2,000) or Hard ($1,200, residents react 40% more strongly to taxes, jams, unemployment and toll gates).
+  - **Map size** — Small 28 × 18, Medium 40 × 24 or Large 56 × 34 tiles.
+  - **Landscape** — open plain, island, coast or river valley, with optional lakes. The land is generated at random each time.
+- **Saving**: the city being played saves itself in its slot a couple of seconds after anything changes. "Save and exit to menu" in City hall returns to the welcome screen.
+- **Accounts** (optional): the welcome screen lets a player create an account or sign in with an e-mail address and password. While signed in, the city being played is uploaded every 30 seconds, and signing in on another browser copies the account's cities into its slots. This needs the Supabase project named in `config.js`, with `supabase-setup.sql` run once in it, and an internet connection (the Supabase library is loaded from a CDN). Signed out or offline, the game saves in the browser only.
 - Keyboard: `R` road, `S` shop, `P` park, `L` toll gate, `T` traffic lights, `O` roundabout, `G` bridge, `B` bulldozer, `Space` pause.
 
 ## What does not exist yet, and known rough edges
@@ -46,9 +51,11 @@ This is an early prototype. The numbers (prices, tax income, how fast people mov
 - There is no way to lose and no penalty for debt beyond being unable to build (including being unable to pay demolition fees).
 - All traffic lights share one timing. Roundabouts and bridges are one tile each; there are no ramps or longer bridges.
 - Parks and toll gates affect the whole city equally, wherever they stand. More building types and per-area statistics are not implemented.
-- There is one city per browser and one per account, and no undo. Two browsers signed in to the same account at once overwrite each other (last upload wins).
+- There is no undo and no way to delete a save slot other than replacing it with a new world. Two browsers signed in to the same account at once overwrite each other (last upload wins).
 - Accounts have no password reset, no way to change e-mail or delete the account from inside the game, and no leaderboard.
-- Signing in, creating an account and the cloud round trip have not been tested end to end; only the page loading and the signed-out state were checked.
+- Signing in, creating an account and the cloud round trip have not been tested end to end; only the signed-out welcome screen, local slots and world generation were checked.
+- Landscapes are simple: an island can come out with a lake cut off by water, and nothing guarantees a minimum amount of buildable land.
+- There are no pedestrians and no public transport.
 - No automated tests. The game has been tested by hand with a mouse in a desktop browser; touch and phone-sized screens have had only a layout check.
 
 ## Running it locally
@@ -73,7 +80,9 @@ traffic.js    cars: trips and routes, movement, queueing, drawing
 junctions.js  traffic lights, roundabouts, bridges: rules, timing, drawing
 buildings.js  how houses, shops and parks are drawn
 terrain.js    the grass, grid and trees under everything
-storage.js    saving to and loading from the browser, checking saved data
+worlds.js     difficulty, map sizes, landscapes and random water generation
+menu.js       the welcome screen: account, save slots, new-world choices
+storage.js    the three save slots in the browser, checking saved data
 cloud.js      accounts and cloud saves through Supabase
 config.js     Supabase project URL and publishable key
 supabase-setup.sql  one-time database setup for cloud saves
@@ -81,12 +90,14 @@ supabase-setup.sql  one-time database setup for cloud saves
 
 The scripts are plain (non-module) files so the game also runs from disk. Each registers its functions on `window.RoadGameModules`, and `game.js` must load last (see the script tags in `index.html`).
 
-The game state lives in one store in `game.js`: sets of `"column,row"` keys for roads, houses and shops, a map of junction features, the `city` object (money, tax rate, happiness, peak population, day), the selected tool and the speed. State is never modified in place; every change produces a new state. Cars are not part of it — `traffic.js` keeps its own list and is only shown the map.
+The game state lives in one store in `game.js`: sets of `"column,row"` keys for roads, houses and shops, a map of junction features, the `city` object (money, tax rate, happiness, peak population, day), the `world` (size, landscape, difficulty, seed) with its generated water, the save slot being played, the selected tool and the speed. State is never modified in place; every change produces a new state. Cars are not part of it — `traffic.js` keeps its own list and is only shown the map.
 
 For debugging, `roadGameBuilder.getState()` in the browser console returns the current state.
 
 ## Ideas for later
 
+- Pedestrians, and residents with specific requests (for example a park near their street)
+- Public transport: buses, later a metro
 - A leaderboard of the biggest cities, password reset
 - Right of way at plain intersections, smoother braking
 - Mood and congestion per neighbourhood instead of city-wide

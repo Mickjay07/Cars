@@ -33,27 +33,6 @@
     if (element.textContent !== text) element.textContent = text;
   }
 
-  function attachNewCityControl(store, actions) {
-    const button = requireElement('clear-map');
-    const dialog = requireElement('clear-dialog');
-    const canUseDialog = typeof dialog.showModal === 'function';
-
-    button.addEventListener('click', () => {
-      if (canUseDialog) {
-        dialog.showModal();
-        return;
-      }
-      if (window.confirm('Start a new city? The map, money and progress are all reset.')) store.update(actions.newCity());
-    });
-    // Only the confirm button resets; Escape and "Keep building" just close the dialog.
-    // Handled on submit (not the later, asynchronous `close` event) so the map is
-    // already empty by the time the player can touch it again.
-    dialog.addEventListener('submit', (event) => {
-      if (event.submitter && event.submitter.value === 'confirm') store.update(actions.newCity());
-    });
-    return { isDialogOpen: () => Boolean(dialog.open) };
-  }
-
   function attachInterface(store, canvas, { actions, TOOLS, STATUS_HINTS }) {
     const modules = window.RoadGameModules;
     const { CITY } = modules;
@@ -75,7 +54,6 @@
       moodBar: requireElement('mood-bar'),
       goalBar: requireElement('goal-bar'),
     });
-    const { isDialogOpen } = attachNewCityControl(store, actions);
     let congestion = 0; // last figure reported by the traffic, only used to explain the mood
 
     const TOOL_SHORTCUTS = Object.freeze({
@@ -101,7 +79,7 @@
 
     window.addEventListener('keydown', (event) => {
       // Letters typed into a dialog (for example an e-mail address) are not tool shortcuts.
-      const isAnyDialogOpen = isDialogOpen() || document.querySelector('dialog[open]') !== null;
+      const isAnyDialogOpen = document.querySelector('dialog[open]') !== null || document.body.classList.contains('is-in-menu');
       if (event.repeat || event.ctrlKey || event.metaKey || event.altKey || isAnyDialogOpen) return;
       const isTypingIntoControl = ['BUTTON', 'INPUT'].includes(event.target.tagName);
       if (event.key === ' ' && !isTypingIntoControl) {

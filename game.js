@@ -28,8 +28,6 @@
   // ---------------------------------------------------------------- CONFIG
 
   const CONFIG = Object.freeze({
-    GRID_COLUMNS: 40,
-    GRID_ROWS: 24,
     MIN_CELL_SIZE: 6, // CSS pixels; below this the map is clipped instead of shrinking further
     VIEWPORT_PADDING: 16,
 
@@ -52,6 +50,7 @@
       ROAD_SURFACE: '#434950',
       LANE_MARKING: 'rgba(236, 233, 220, 0.75)',
       CROSSWALK: 'rgba(236, 233, 220, 0.85)',
+      CAUSEWAY: '#b9ad92', // the embankment under a road built across water
       HOVER_BUILD_FILL: 'rgba(255, 255, 255, 0.20)',
       HOVER_BUILD_STROKE: 'rgba(255, 255, 255, 0.85)',
       HOVER_REMOVE_FILL: 'rgba(229, 103, 92, 0.35)',
@@ -94,16 +93,15 @@
     return col + ',' + row;
   }
 
-  function isInBounds(cell) {
-    return (
-      cell.col >= 0 && cell.col < CONFIG.GRID_COLUMNS && cell.row >= 0 && cell.row < CONFIG.GRID_ROWS
-    );
+  /** `world` is the map being played; its size differs from city to city. */
+  function isInBounds(cell, world) {
+    return cell.col >= 0 && cell.col < world.columns && cell.row >= 0 && cell.row < world.rows;
   }
 
-  function clampCell(cell) {
+  function clampCell(cell, world) {
     return {
-      col: Math.min(Math.max(cell.col, 0), CONFIG.GRID_COLUMNS - 1),
-      row: Math.min(Math.max(cell.row, 0), CONFIG.GRID_ROWS - 1),
+      col: Math.min(Math.max(cell.col, 0), world.columns - 1),
+      row: Math.min(Math.max(cell.row, 0), world.rows - 1),
     };
   }
 
@@ -149,7 +147,6 @@
   /** Adds cells to a set, skipping ones outside the map, already present, or occupied by `blocked`. */
   function addCells(occupied, cells, blocked) {
     const newKeys = cells
-      .filter(isInBounds)
       .map((cell) => cellKey(cell.col, cell.row))
       .filter((key) => !occupied.has(key) && !blocked.has(key));
     return newKeys.length === 0 ? occupied : new Set([...occupied, ...newKeys]);
@@ -219,14 +216,17 @@
   const GAME_SPEEDS = Object.freeze([0, 1, 3]); // 0 is paused
   const clampTax = (rate) => Math.min(Math.max(rate, MODULES.CITY.MIN_TAX), MODULES.CITY.MAX_TAX);
 
-  function freshMap() {
+  /** An untouched map and a new city's books for the given world. */
+  function freshMap(world) {
     return {
+      world,
+      water: MODULES.generateWater(world), // derived from the world; never saved
       roads: new Set(),
       houses: new Set(), // built by the residents themselves, see city.js
       shops: new Set(),
       parks: new Set(),
-      junctions: new Map(), // cell key -> traffic lights, roundabout or bridge on that road tile
-      city: MODULES.initialCity(),
+      junctions: new Map(), // cell key -> traffic lights, roundabout, bridge or toll gate on that road tile
+      city: MODULES.initialCity(world),
     };
   }
 
@@ -244,8 +244,9 @@
       : isBulldozing ? removeCells(state[kind], cells)
       : state[kind];
     const roads = place('roads', TOOLS.ROAD, ['houses', 'shops', 'parks']);
-    const shops = place('shops', TOOLS.SHOP, ['roads', 'houses', 'parks']);
-    const parks = place('parks', TOOLS.PARK, ['roads', 'houses', 'shops']);
+    // Roads may cross water (at a price, see city.js); buildings may not stand in it.
+    const shops = place('shops', TOOLS.SHOP, ['roads', 'houses', 'parks', 'water']);
+    const parks = place('parks', TOOLS.PARK, ['roads', 'houses', 'shops', 'water']);
     const houses = isBulldozing ? removeCells(state.houses, cells) : state.houses;
     const isUnchanged =
       roads === state.roads && houses === state.houses && shops === state.shops && parks === state.parks;
@@ -264,7 +265,7 @@
     /** Building is refused outright if the tool is still locked or the city cannot pay for it. */
     applyTool: (tool, cells) => (state) => {
       if (!MODULES.isToolUnlocked(tool, state.city)) return state;
-      const built = buildWithTool(state, tool, cells);
+      const built = buildWithTool(state, tool, cells.filter((cell) => isInBounds(cell, state.world)));
       if (built === state) return state;
       const cost = MODULES.costOfChange(state, built);
       if (cost > state.city.money) return state;
@@ -283,10 +284,18 @@
     earn: (amount) => (state) =>
       amount > 0 ? { ...state, city: { ...state.city, money: state.city.money + amount } } : state,
 
-    /** Swaps in a whole saved city (roads, buildings, junctions, money and so on). */
-    restore: (savedMap) => (state) => ({ ...state, ...savedMap }),
+    /** Starts play in a save slot with the given world, map and city. */
+    enterWorld: (slot, map) => (state) => ({
+      ...state,
+      ...map,
+      water: MODULES.generateWater(map.world),
+      slot,
+      speed: 1,
+      activeTool: TOOLS.ROAD,
+    }),
 
-    newCity: () => (state) => ({ ...state, ...freshMap(), activeTool: TOOLS.ROAD }),
+    /** Stops the clock and marks that no city is being played (the welcome screen is showing). */
+    exitToMenu: () => (state) => (state.slot === null && state.speed === 0 ? state : { ...state, slot: null, speed: 0 }),
   });
 
   // -------------------------------------------------------------- Renderer
@@ -339,13 +348,13 @@
       const availableWidth = viewport.clientWidth - CONFIG.VIEWPORT_PADDING * 2;
       const availableHeight = viewport.clientHeight - CONFIG.VIEWPORT_PADDING * 2;
       const fittingCellSize = Math.floor(
-        Math.min(availableWidth / CONFIG.GRID_COLUMNS, availableHeight / CONFIG.GRID_ROWS)
+        Math.min(availableWidth / store.getState().world.columns, availableHeight / store.getState().world.rows)
       );
       cellSize = Math.max(CONFIG.MIN_CELL_SIZE, fittingCellSize);
       pixelRatio = window.devicePixelRatio || 1;
 
-      const width = cellSize * CONFIG.GRID_COLUMNS;
-      const height = cellSize * CONFIG.GRID_ROWS;
+      const width = cellSize * store.getState().world.columns;
+      const height = cellSize * store.getState().world.rows;
       canvas.style.width = width + 'px';
       canvas.style.height = height + 'px';
       canvas.width = Math.round(width * pixelRatio);
@@ -354,9 +363,14 @@
     }
 
     function drawTerrain() {
-      const { roads, houses, shops, parks } = store.getState();
-      const isBuiltOn = (col, row) => [roads, houses, shops, parks].some((tiles) => tiles.has(cellKey(col, row)));
-      MODULES.drawTerrain(ctx, { columns: CONFIG.GRID_COLUMNS, rows: CONFIG.GRID_ROWS, cellSize, isBuiltOn });
+      const { world, water, roads, houses, shops, parks } = store.getState();
+      MODULES.drawTerrain(ctx, {
+        columns: world.columns,
+        rows: world.rows,
+        cellSize,
+        isWater: (col, row) => water.has(cellKey(col, row)),
+        isBuiltOn: (col, row) => [roads, houses, shops, parks].some((tiles) => tiles.has(cellKey(col, row))),
+      });
     }
 
     /** 0..1 growth of a freshly placed tile; 1 once its animation has finished. */
@@ -479,6 +493,10 @@
 
     function drawRoads(roads, junctions, now) {
       const tiles = describeTiles(roads, now);
+      const { water } = store.getState();
+      ctx.fillStyle = CONFIG.COLORS.CAUSEWAY;
+      tiles.filter((tile) => water.has(tile.key)).forEach((tile) =>
+        ctx.fillRect(tile.centerX - cellSize / 2, tile.centerY - cellSize / 2, cellSize, cellSize));
       const surfaceWidth = cellSize * CONFIG.ROAD_WIDTH_RATIO;
       const edgeWidth = surfaceWidth + Math.max(2, cellSize * CONFIG.ROAD_EDGE_RATIO * 2);
 
@@ -566,6 +584,7 @@
     }
 
     store.subscribe((state, previous) => {
+      if (state.world !== previous.world) resize();
       trackTileChanges(state.roads, previous.roads);
       trackTileChanges(state.houses, previous.houses);
       trackTileChanges(state.shops, previous.shops);
@@ -598,8 +617,8 @@
     function cellFromEvent(event) {
       const bounds = canvas.getBoundingClientRect();
       return {
-        col: Math.floor(((event.clientX - bounds.left) / bounds.width) * CONFIG.GRID_COLUMNS),
-        row: Math.floor(((event.clientY - bounds.top) / bounds.height) * CONFIG.GRID_ROWS),
+        col: Math.floor(((event.clientX - bounds.left) / bounds.width) * store.getState().world.columns),
+        row: Math.floor(((event.clientY - bounds.top) / bounds.height) * store.getState().world.rows),
       };
     }
 
@@ -607,13 +626,13 @@
       if (!stroke || event.pointerId !== stroke.pointerId) return;
       stroke = null;
       const cell = cellFromEvent(event);
-      onHoverChange(event.type === 'pointerup' && isInBounds(cell) ? cell : null, null);
+      onHoverChange(event.type === 'pointerup' && isInBounds(cell, store.getState().world) ? cell : null, null);
     }
 
     canvas.addEventListener('pointerdown', (event) => {
       if (stroke || (event.button !== PRIMARY_BUTTON && event.button !== SECONDARY_BUTTON)) return;
       event.preventDefault();
-      const cell = clampCell(cellFromEvent(event));
+      const cell = clampCell(cellFromEvent(event), store.getState().world);
       // Right button always bulldozes, whichever tool is selected.
       const tool = event.button === SECONDARY_BUTTON ? TOOLS.BULLDOZER : store.getState().activeTool;
       stroke = { pointerId: event.pointerId, tool, lastCell: cell };
@@ -630,11 +649,11 @@
     canvas.addEventListener('pointermove', (event) => {
       const rawCell = cellFromEvent(event);
       if (!stroke) {
-        onHoverChange(isInBounds(rawCell) ? rawCell : null, null);
+        onHoverChange(isInBounds(rawCell, store.getState().world) ? rawCell : null, null);
         return;
       }
       if (event.pointerId !== stroke.pointerId) return;
-      const cell = clampCell(rawCell);
+      const cell = clampCell(rawCell, store.getState().world);
       if (cell.col === stroke.lastCell.col && cell.row === stroke.lastCell.row) return;
       // Junction tools act once per click; dragging with them only moves the highlight.
       if (!JUNCTION_TOOLS.includes(stroke.tool)) {
@@ -678,7 +697,8 @@
     const required = [
       'createTraffic', 'drawHouse', 'drawShop', 'drawPark', 'drawTerrain', 'nextJunctionType', 'pruneJunctions', 'signalPhase', 'drawJunction',
       'drawBridgeDeck', 'isBridge', 'createCity', 'initialCity', 'costOfChange', 'isToolUnlocked', 'attachInterface',
-      'requireElement', 'saveGame', 'loadGame', 'serializeGame', 'parseSave', 'createCloud', 'startCloudSync',
+      'requireElement', 'serializeGame', 'parseSave', 'startAutosave', 'createCloud', 'startCloudUpload', 'startMenu',
+      'sanitizeWorld', 'generateWater', 'difficultyOf',
     ];
     const missing = required.filter((name) => typeof MODULES[name] !== 'function');
     if (missing.length > 0 || !MODULES.JUNCTION || !MODULES.CITY) {
@@ -713,35 +733,24 @@
   /** What storage.js needs to know to check a save, wherever it came from. */
   function saveRules() {
     return {
-      isValidCell: (key) => isInBounds(parseKey(key)),
+      sanitizeWorld: MODULES.sanitizeWorld,
+      isValidCell: (key, world) => isInBounds(parseKey(key), world),
       junctionTypes: Object.values(MODULES.JUNCTION),
-      defaultCity: MODULES.initialCity(),
+      defaultCity: MODULES.initialCity,
       clampTax,
     };
-  }
-
-  /** Saves shortly after the map or the city changes, at most once per delay. */
-  function startAutosave(store) {
-    let pendingSave = null;
-    store.subscribe((state, previous) => {
-      const isWorthSaving = ['roads', 'houses', 'shops', 'parks', 'junctions', 'city'].some((part) => state[part] !== previous[part]);
-      if (!isWorthSaving || pendingSave !== null) return;
-      pendingSave = window.setTimeout(() => {
-        pendingSave = null;
-        MODULES.saveGame(store.getState());
-      }, CONFIG.AUTOSAVE_DELAY_MS);
-    });
   }
 
   function startGame() {
     const { createTraffic, createCity, drawHouse, JUNCTION, signalPhase, attachInterface } = requireModules();
     const canvas = requireElement('game-canvas');
     const viewport = requireElement('viewport');
-    const { savedAt: localSavedAt = 0, ...savedMap } = MODULES.loadGame(saveRules()) || freshMap();
-    const store = createStore({ ...savedMap, activeTool: TOOLS.ROAD, speed: 1 });
+    // Until the player picks a city on the welcome screen, an empty default world sits paused behind it.
+    const placeholder = freshMap(MODULES.sanitizeWorld(null));
+    const store = createStore({ ...placeholder, slot: null, activeTool: TOOLS.ROAD, speed: 0 });
 
     const traffic = createTraffic({ cellKey, JUNCTION, signalPhase });
-    const city = createCity({ columns: CONFIG.GRID_COLUMNS, rows: CONFIG.GRID_ROWS, cellKey });
+    const city = createCity({ cellKey });
     const renderer = createRenderer(canvas, viewport, store, { traffic, drawHouse });
     const ui = attachInterface(store, canvas, { actions, TOOLS, STATUS_HINTS });
     attachInput(canvas, store, (cell, toolOverride) => {
@@ -751,14 +760,16 @@
 
     watchViewportSize(viewport, renderer.resize);
     renderer.resize();
-    startAutosave(store);
-    MODULES.startCloudSync({
-      cloud: MODULES.createCloud(window.ROAD_GAME_CONFIG),
+    MODULES.startAutosave(store, CONFIG.AUTOSAVE_DELAY_MS);
+    const cloud = MODULES.createCloud(window.ROAD_GAME_CONFIG);
+    const menu = MODULES.startMenu({ store, actions, rules: saveRules(), freshMap, cloud });
+    MODULES.startCloudUpload({
+      cloud,
       store,
-      restore: actions.restore,
       serialize: MODULES.serializeGame,
-      parse: (saved) => MODULES.parseSave(saved, saveRules()),
-      localSavedAt,
+      getUser: menu.getUser,
+      markOwned: MODULES.setSlotOwner,
+      savedParts: MODULES.SAVED_PARTS,
     });
     startGameLoop(store, traffic, city, renderer, ui);
 

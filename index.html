@@ -145,46 +145,79 @@
       </section>
 
       <section class="panel-block">
-        <p class="row"><span class="row-label">Account</span></p>
-        <p class="note" id="cloud-status">Connecting…</p>
-        <button class="button button-wide" type="button" id="account-button">Sign in</button>
+        <p class="row"><span class="row-label">Saving</span></p>
+        <p class="note" id="cloud-status">Saving in this browser.</p>
       </section>
 
-      <button class="text-button" type="button" id="clear-map">Start a new city</button>
+      <button class="button button-wide panel-exit" type="button" id="menu-button">Save and exit to menu</button>
     </aside>
   </div>
 
-  <dialog class="dialog" id="clear-dialog" aria-labelledby="clear-dialog-title">
-    <form method="dialog">
-      <h2 class="dialog-title" id="clear-dialog-title">Start a new city?</h2>
-      <p class="dialog-text">The map, your money and your progress are all reset. This can't be undone.</p>
-      <div class="dialog-actions">
-        <button class="button" value="cancel" autofocus>Keep building</button>
-        <button class="button button-danger-solid" value="confirm">New city</button>
-      </div>
-    </form>
-  </dialog>
+  <div class="menu" id="menu">
+    <div class="menu-card card">
+      <header class="menu-header">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <rect width="32" height="32" rx="8" fill="#23262b"/>
+          <path d="M16 5v4M16 14v4M16 23v4" stroke="#f7f2e7" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+        <div>
+          <h2 class="menu-title">Road Game Builder</h2>
+          <p class="note">Lay out roads, set the taxes, grow a town.</p>
+        </div>
+      </header>
 
-  <dialog class="dialog" id="account-dialog" aria-labelledby="account-dialog-title">
-    <form id="account-form" novalidate>
-      <h2 class="dialog-title" id="account-dialog-title">Your account</h2>
-      <p class="dialog-text">Sign in to keep your city in the cloud and pick it up on any device.</p>
-      <label class="field">
-        <span>E-mail</span>
-        <input id="account-email" type="email" autocomplete="email" required>
-      </label>
-      <label class="field">
-        <span>Password</span>
-        <input id="account-password" type="password" autocomplete="current-password" minlength="6" required>
-      </label>
-      <p class="field-message" id="account-message" role="status"></p>
-      <div class="dialog-actions">
-        <button class="button" type="button" id="account-close">Close</button>
-        <button class="button" type="submit" value="signup">Create account</button>
-        <button class="button button-accent" type="submit" value="signin">Sign in</button>
+      <div id="menu-home">
+        <section class="menu-section">
+          <h3 class="menu-heading">Account</h3>
+          <p class="note" id="menu-account-status"></p>
+          <form class="account-form" id="account-form" novalidate>
+            <label class="field">
+              <span>E-mail</span>
+              <input id="account-email" type="email" autocomplete="email" required>
+            </label>
+            <label class="field">
+              <span>Password</span>
+              <input id="account-password" type="password" autocomplete="current-password" minlength="6" required>
+            </label>
+            <div class="account-buttons">
+              <button class="button button-accent" type="submit" value="signin">Sign in</button>
+              <button class="button" type="submit" value="signup">Create account</button>
+            </div>
+          </form>
+          <button class="button" type="button" id="sign-out-button" hidden>Sign out</button>
+          <p class="field-message" id="account-message" role="status"></p>
+        </section>
+
+        <section class="menu-section">
+          <h3 class="menu-heading">Your cities</h3>
+          <ol class="slot-list" id="slot-list"></ol>
+        </section>
       </div>
-    </form>
-  </dialog>
+
+      <form class="world-form" id="world-form" hidden>
+        <h3 class="menu-heading" id="world-form-title">New world</h3>
+        <fieldset class="choice-group">
+          <legend>Difficulty</legend>
+          <div class="choices" data-choice="difficulty"></div>
+          <p class="note" id="difficulty-note"></p>
+        </fieldset>
+        <fieldset class="choice-group">
+          <legend>Map size</legend>
+          <div class="choices" data-choice="size"></div>
+        </fieldset>
+        <fieldset class="choice-group">
+          <legend>Landscape</legend>
+          <div class="choices" data-choice="shape"></div>
+          <label class="check"><input type="checkbox" name="lakes"> <span>Scatter some lakes</span></label>
+          <p class="note">The land is generated at random each time. Roads can cross water, at six times the price.</p>
+        </fieldset>
+        <div class="dialog-actions">
+          <button class="button" type="button" id="world-back">Back</button>
+          <button class="button button-accent" type="submit">Create world</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <dialog class="dialog" id="help-dialog" aria-labelledby="help-dialog-title">
     <form method="dialog">
@@ -211,11 +244,13 @@
   <script src="buildings.js"></script>
   <script src="terrain.js"></script>
   <script src="city.js"></script>
+  <script src="worlds.js"></script>
   <script src="storage.js"></script>
   <script src="interface.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
   <script src="cloud.js"></script>
+  <script src="menu.js"></script>
   <script src="game.js"></script>
 </body>
 </html>

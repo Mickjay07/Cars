@@ -1,10 +1,11 @@
 /*
  * Road Game Builder — accounts and cloud saves.
  *
- * A player can sign in with an e-mail address and password. While signed in,
- * their city is uploaded to the database every so often, and signing in on
- * another browser loads it there. Accounts and storage are a Supabase project
- * (see supabase-setup.sql); each player can reach only their own city.
+ * A player can sign in with an e-mail address and password (on the welcome
+ * screen, see menu.js). While they are signed in, the city being played is
+ * uploaded to their account every so often. Accounts and storage are a
+ * Supabase project (see supabase-setup.sql); each player can reach only
+ * their own cities.
  *
  * Signing in is optional. Signed out, or with the cloud unreachable, the game
  * carries on saving in the browser alone.
@@ -16,8 +17,6 @@
 
   const UPLOAD_INTERVAL_MS = 30000;
   const CITY_TABLE = 'cities';
-  const MIN_PASSWORD_LENGTH = 6; // Supabase's own minimum
-  const SAVED_PARTS = Object.freeze(['roads', 'houses', 'shops', 'parks', 'junctions', 'city']);
 
   function createCloud({ supabaseUrl, supabaseKey } = {}) {
     const library = window.supabase; // loaded from a CDN by index.html; absent when offline
@@ -48,162 +47,71 @@
       async signOut() {
         unwrap(await client.auth.signOut());
       },
-      async save(userId, snapshot) {
-        const row = { user_id: userId, data: snapshot, updated_at: new Date().toISOString() };
-        unwrap(await client.from(CITY_TABLE).upsert(row));
+      async saveSlot(userId, slot, snapshot) {
+        const row = { user_id: userId, slot, data: snapshot, updated_at: new Date().toISOString() };
+        unwrap(await client.from(CITY_TABLE).upsert(row, { onConflict: 'user_id,slot' }));
       },
-      /** The player's saved city data, or null if they have none yet. */
-      async load(userId) {
-        const row = unwrap(await client.from(CITY_TABLE).select('data').eq('user_id', userId).maybeSingle());
-        return row ? row.data : null;
+      /** Every city saved in the account, as [{ slot, data }]. */
+      async loadSlots(userId) {
+        return unwrap(await client.from(CITY_TABLE).select('slot, data').eq('user_id', userId)) || [];
       },
     };
   }
 
-  function requireElement(id) {
-    const element = document.getElementById(id);
-    if (!element) throw new Error('Missing page element: #' + id);
-    return element;
+  /** Turns a database error into something a player can act on. */
+  function describeCloudError(error) {
+    const message = String(error && error.message);
+    if (/could not find the table|column .* does not exist|no unique or exclusion constraint/i.test(message)) {
+      return 'The database is not set up for this version yet (run supabase-setup.sql).';
+    }
+    return 'The cloud cannot be reached.';
   }
 
   /**
-   * Wires up the account controls in the City panel and keeps the city in step with the cloud.
-   * `restore(map)` is the store action that swaps in a loaded city, `serialize` and
-   * `parse` convert between game state and saved data, and `localSavedAt` is when
-   * the save in this browser was written (0 if there is none).
+   * While a city is being played and a player is signed in, uploads it every so often.
+   * `getUser()` returns the signed-in user or null, `serialize` turns the game state
+   * into saved data and `markOwned(slot, userId)` records that a slot belongs to an account.
    */
-  function startCloudSync({ cloud, store, restore, serialize, parse, localSavedAt }) {
-    const status = requireElement('cloud-status');
-    const accountButton = requireElement('account-button');
-    const dialog = requireElement('account-dialog');
-    const form = requireElement('account-form');
-    const emailField = requireElement('account-email');
-    const passwordField = requireElement('account-password');
-    const formMessage = requireElement('account-message');
+  function startCloudUpload({ cloud, store, serialize, getUser, markOwned, savedParts }) {
+    const status = document.getElementById('cloud-status');
+    if (!status) throw new Error('Missing page element: #cloud-status');
     const show = (text) => { status.textContent = text; };
-
-    if (!cloud.isEnabled || typeof dialog.showModal !== 'function') {
-      show('Unavailable — saving in this browser only.');
-      accountButton.disabled = true;
+    if (!cloud.isEnabled) {
+      show('Accounts are unavailable. Saving in this browser only.');
       return;
     }
 
-    let user = null;
-    let uploadedState = null; // the state most recently known to match the cloud
+    let uploaded = null; // { slot, state } most recently known to match the cloud
     let isBusy = false;
-    const isUploaded = (state) => uploadedState !== null && SAVED_PARTS.every((part) => state[part] === uploadedState[part]);
+    const isUploaded = (state) =>
+      uploaded !== null && uploaded.slot === state.slot && savedParts.every((part) => state[part] === uploaded.state[part]);
     const clockTime = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const reportFailure = (error) => {
-      console.warn('Cloud save problem:', error);
-      const isTableMissing = /could not find the table/i.test(String(error && error.message));
-      const problem = isTableMissing
-        ? 'The database is not set up yet (run supabase-setup.sql) — saving in this browser only.'
-        : 'Cloud unreachable — saving in this browser only.';
-      show((user ? 'Signed in as ' + user.email + '. ' : '') + problem);
-    };
 
     async function upload() {
       const state = store.getState();
-      if (!user || isBusy || isUploaded(state)) return;
+      const user = getUser();
+      if (!user) {
+        show('Not signed in. Saving in this browser only.');
+        return;
+      }
+      if (state.slot === null || isBusy || isUploaded(state)) return;
       isBusy = true;
       try {
-        await cloud.save(user.id, serialize(state));
-        uploadedState = state;
-        show('Signed in as ' + user.email + '. Saved at ' + clockTime() + '.');
+        await cloud.saveSlot(user.id, state.slot, serialize(state));
+        markOwned(state.slot, user.id);
+        uploaded = { slot: state.slot, state };
+        show('Signed in as ' + user.email + '. Saved to your account at ' + clockTime() + '.');
       } catch (error) {
-        reportFailure(error);
+        console.warn('Cloud save problem:', error);
+        show('Signed in as ' + user.email + '. ' + describeCloudError(error) + ' Saving in this browser only.');
       } finally {
         isBusy = false;
       }
     }
 
-    /**
-     * Brings the account's city into the game. Right after signing in it always
-     * wins (the player is asked first if that would replace something they
-     * built); on a normal start it wins only if it is newer than the browser's save.
-     */
-    async function adoptCloudCity(hasJustSignedIn) {
-      const parsed = parse(await cloud.load(user.id));
-      if (!parsed) return;
-      if (!hasJustSignedIn && parsed.savedAt <= localSavedAt) return;
-      const hasLocalCity = store.getState().roads.size > 0;
-      const question =
-        'Load the city saved in your account?\n\nOK replaces the city in this browser. ' +
-        'Cancel keeps this one and saves it to your account instead.';
-      if (hasJustSignedIn && hasLocalCity && !window.confirm(question)) return;
-      const { savedAt, ...map } = parsed;
-      store.update(restore(map));
-      uploadedState = store.getState();
-    }
-
-    async function setUser(nextUser, hasJustSignedIn) {
-      user = nextUser;
-      uploadedState = null;
-      accountButton.textContent = user ? 'Sign out' : 'Sign in';
-      if (!user) {
-        show('Not signed in — saving in this browser only.');
-        return;
-      }
-      show('Signed in as ' + user.email + '.');
-      try {
-        await adoptCloudCity(hasJustSignedIn);
-      } catch (error) {
-        reportFailure(error);
-        return;
-      }
-      await upload();
-    }
-
-    accountButton.addEventListener('click', async () => {
-      if (!user) {
-        formMessage.textContent = '';
-        dialog.showModal();
-        return;
-      }
-      try {
-        await cloud.signOut();
-        await setUser(null, false);
-      } catch (error) {
-        reportFailure(error);
-      }
-    });
-
-    requireElement('account-close').addEventListener('click', () => dialog.close());
-
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const email = emailField.value.trim();
-      const password = passwordField.value;
-      const isCreating = Boolean(event.submitter) && event.submitter.value === 'signup';
-      if (!email.includes('@')) {
-        formMessage.textContent = 'Enter your e-mail address.';
-        return;
-      }
-      if (password.length < MIN_PASSWORD_LENGTH) {
-        formMessage.textContent = 'The password needs at least ' + MIN_PASSWORD_LENGTH + ' characters.';
-        return;
-      }
-      formMessage.textContent = isCreating ? 'Creating your account…' : 'Signing in…';
-      try {
-        const signedInUser = isCreating ? await cloud.signUp(email, password) : await cloud.signIn(email, password);
-        passwordField.value = '';
-        if (!signedInUser) {
-          formMessage.textContent = 'Account created. Open the link in the e-mail we sent you, then sign in here.';
-          return;
-        }
-        dialog.close();
-        await setUser(signedInUser, true);
-      } catch (error) {
-        formMessage.textContent = error.message;
-      }
-    });
-
-    cloud
-      .currentUser()
-      .then((existingUser) => setUser(existingUser, false))
-      .catch(reportFailure)
-      .then(() => window.setInterval(upload, UPLOAD_INTERVAL_MS));
+    window.setInterval(upload, UPLOAD_INTERVAL_MS);
+    return { uploadNow: upload };
   }
 
-  window.RoadGameModules = Object.assign(window.RoadGameModules || {}, { createCloud, startCloudSync });
+  window.RoadGameModules = Object.assign(window.RoadGameModules || {}, { createCloud, startCloudUpload, describeCloudError });
 })();

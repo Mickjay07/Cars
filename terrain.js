@@ -19,6 +19,9 @@
     TREE_SHADOW_COLOR: 'rgba(25, 60, 30, 0.25)',
     TREE_COLOR: '#4f9150',
     TREE_HIGHLIGHT_COLOR: '#6bab62',
+    WATER_COLOR: '#6db4dc',
+    WAVE_COLOR: 'rgba(255, 255, 255, 0.28)',
+    SAND_COLOR: 'rgba(240, 222, 160, 0.45)',
   });
 
   /** Stable pseudo-random number for a pair of coordinates. */
@@ -73,16 +76,39 @@
     disc(x - radius * 0.25, y - radius * 0.3, radius * 0.5, LAND.TREE_HIGHLIGHT_COLOR);
   }
 
-  /** Paints the whole map's ground. `isBuiltOn(col, row)` hides trees under anything the player built. */
-  function drawTerrain(ctx, { columns, rows, cellSize, isBuiltOn }) {
+  function drawWaterTile(ctx, col, row, cellSize, seed) {
+    ctx.fillStyle = LAND.WATER_COLOR;
+    ctx.fillRect(col * cellSize, row * cellSize, cellSize + 0.5, cellSize + 0.5);
+    if (seed % 3 !== 0) return;
+    // A short ripple on some tiles, so the water is not one flat sheet.
+    const x = (col + 0.2 + ((seed >>> 8) % 30) / 100) * cellSize;
+    const y = (row + 0.3 + ((seed >>> 16) % 40) / 100) * cellSize;
+    ctx.fillStyle = LAND.WAVE_COLOR;
+    ctx.fillRect(x, y, cellSize * 0.3, Math.max(1, cellSize * 0.06));
+  }
+
+  /**
+   * Paints the whole map's ground. `isWater(col, row)` marks sea, river and lake tiles;
+   * `isBuiltOn(col, row)` hides trees under anything the player built.
+   */
+  function drawTerrain(ctx, { columns, rows, cellSize, isBuiltOn, isWater }) {
     ctx.fillStyle = LAND.GRASS_COLOR;
     ctx.fillRect(0, 0, columns * cellSize, rows * cellSize);
     drawPatches(ctx, columns, rows, cellSize);
     drawGrid(ctx, columns, rows, cellSize);
+    const isShore = (col, row) =>
+      isWater(col - 1, row) || isWater(col + 1, row) || isWater(col, row - 1) || isWater(col, row + 1);
     for (let col = 0; col < columns; col += 1) {
       for (let row = 0; row < rows; row += 1) {
         const seed = hashOf(col + 1000, row + 1000);
-        if (seed % 100 < LAND.TREE_CHANCE_PERCENT && !isBuiltOn(col, row)) drawTree(ctx, col, row, cellSize, seed);
+        if (isWater(col, row)) {
+          drawWaterTile(ctx, col, row, cellSize, seed);
+        } else if (isShore(col, row)) {
+          ctx.fillStyle = LAND.SAND_COLOR;
+          ctx.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
+        } else if (seed % 100 < LAND.TREE_CHANCE_PERCENT && !isBuiltOn(col, row)) {
+          drawTree(ctx, col, row, cellSize, seed);
+        }
       }
     }
   }
