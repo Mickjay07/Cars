@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Road Game Builder — a browser-based road-building game. Lay out your own road network on an open piece of land.">
+  <title>Road Game Builder</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <rect x="1" y="1" width="30" height="30" rx="7" fill="#7fb36b"/>
+          <path d="M16 1v30M1 16h15" stroke="#3b4046" stroke-width="9"/>
+          <path d="M16 3v26" stroke="#e9e6d8" stroke-width="1.5" stroke-dasharray="3.5 3.5"/>
+        </svg>
+        <h1 class="brand-title">Road Game Builder</h1>
+        <span class="brand-tag">Prototype</span>
+      </div>
+      <div class="stat" title="Number of road segments on the map">
+        <span class="stat-label">Road segments</span>
+        <output class="stat-value" id="segment-count" aria-live="polite">0</output>
+      </div>
+    </header>
+
+    <aside class="sidebar">
+      <section class="panel" aria-labelledby="tools-heading">
+        <h2 class="panel-heading" id="tools-heading">Tools</h2>
+        <div class="tool-list" role="group" aria-labelledby="tools-heading">
+          <button class="tool" type="button" data-tool="road" aria-pressed="true">
+            <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 3 4 21M17 3l3 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <path d="M12 4v3M12 10.5v3M12 17v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <span class="tool-name">Road</span>
+            <kbd class="tool-key">R</kbd>
+          </button>
+          <button class="tool" type="button" data-tool="bulldozer" aria-pressed="false">
+            <svg class="tool-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 17V9h6l3 4h4v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+              <path d="M19 9v9h2.5M2.5 20.5h13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="6" cy="17.5" r="1.6" fill="currentColor"/>
+              <circle cx="13" cy="17.5" r="1.6" fill="currentColor"/>
+            </svg>
+            <span class="tool-name">Bulldozer</span>
+            <kbd class="tool-key">B</kbd>
+          </button>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="map-heading">
+        <h2 class="panel-heading" id="map-heading">Map</h2>
+        <button class="button button-danger" type="button" id="clear-map" disabled>Clear map</button>
+      </section>
+
+      <section class="panel panel-help" aria-labelledby="help-heading">
+        <h2 class="panel-heading" id="help-heading">Controls</h2>
+        <ul class="help-list">
+          <li><strong>Click</strong> a tile to place a road.</li>
+          <li><strong>Drag</strong> to lay a connected stretch of road.</li>
+          <li>Roads join their neighbours on their own — cross two roads to make an intersection.</li>
+          <li>Pick the <strong>Bulldozer</strong>, or <strong>right-drag</strong>, to remove roads.</li>
+          <li>Press <kbd>R</kbd> or <kbd>B</kbd> to switch tools.</li>
+        </ul>
+      </section>
+    </aside>
+
+    <main class="stage">
+      <div class="viewport" id="viewport">
+        <canvas id="game-canvas" data-tool="road" aria-label="Game map. Use the mouse to build and remove roads."></canvas>
+      </div>
+      <footer class="statusbar">
+        <span id="status-hint">Road tool — click or drag to build</span>
+        <span class="status-cell" id="status-cell"></span>
+      </footer>
+    </main>
+  </div>
+
+  <dialog class="dialog" id="clear-dialog" aria-labelledby="clear-dialog-title">
+    <form method="dialog">
+      <h2 class="dialog-title" id="clear-dialog-title">Clear the whole map?</h2>
+      <p class="dialog-text" id="clear-dialog-text">Every road will be removed. This can't be undone.</p>
+      <div class="dialog-actions">
+        <button class="button" value="cancel" autofocus>Keep building</button>
+        <button class="button button-danger-solid" value="confirm">Clear map</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="error-banner" id="error-banner" role="alert" hidden></div>
+
+  <script src="game.js"></script>
+</body>
+</html>
